@@ -34,7 +34,7 @@ from mustjoin import check_join
 from config import BOT_TOKEN, ADMIN_IDS
 
 # ================= MongoDB Setup =================
-MONGO_URI = os.getenv("MONGO_URI") or "mongodb+srv:=Vth0"
+MONGO_URI = os.getenv("MONGO_URI") or "mongodb+srv://OtpWala:<db_password>@otpwala.gjxwbr3.mongodb.net/?appName=OtpWala"
 client = MongoClient(MONGO_URI)
 db = client["QuickCodes"]
 users_col = db["users"]
