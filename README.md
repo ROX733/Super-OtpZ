@@ -1,55 +1,104 @@
-# vthquickcodes
-**A fully automated telegram readymade account selling bot.**
+# Super OtpZ
 
-## What this repo includes
-- Telegram bot with:
-  - `/start` menu with inline buttons (Balance, Account Details, Recharge, Support, Buy Account).
-  - Country selection and buy flow (quantity, stock checks, balance checks).
-  - Admin `/add` flow to add numbers to stock per country.
-  - MongoDB store for users, stock, transactions.
-  - Heroku-ready Procfile.
+A Telegram account marketplace bot built with **Python**, **Aiogram 3**, **MongoDB**, and **Telethon**.
 
-## Deployment
+The bot provides a Telegram-based interface for browsing available account stock, managing user balances, placing orders, and handling recharge requests. It also includes admin utilities and channel-membership checks.
 
-<details>
-<summary><strong>Click here for the Detailed Deployment Guide</strong></summary>
+> **Important:** Review Telegram's terms and applicable laws before operating an account marketplace. Never upload API credentials, bot tokens, database credentials, payment keys, or user session data to a public repository.
 
-### 1. Database Setup
-* First, create a database by visiting [MongoDB Atlas](https://www.mongodb.com/products/platform/atlas-database).
-* From there, create a database link (connection string).
-* In the repository, locate `bot.py` > Line 37 `#--Mongo-setup`.
+## Features
 
-### 2. Basic Edits (in `bot.py`)
-* **Lines 47-54:** Change all the variables and do not use `@`.
-* **Lines 531-543:** Change every URL for the "More" Callback.
-* **Line 1563:** Sales callback - set your sales admin GC/user ID there.
-* **Lines 2041 & 2057:** Add your "how to use" post link.
+- Telegram bot interface with inline menus.
+- User profiles and balance tracking.
+- Country-based stock and purchase workflow.
+- Admin tools for managing stock, pricing, users, and transactions.
+- Required-channel membership verification.
+- Balance recharge options:
+  - INR / UPI payment flow with QR image and manual review.
+  - OxaPay crypto invoice creation and payment-status checking.
+- MongoDB-backed user, stock, order, and payment records.
+- Telethon integration used by the project’s Telegram-account workflow.
 
-### 3. MUSTJOIN Setup
-* Locate `bot/mustjoin.py` and edit all the configurations carefully.
+## Project files
 
-### 4. Recharge Flow Setup
-* Locate `bot/reacharge_flow.py` and edit the lines starting from line 20 (`#config`).
-* Upload your QR payment file to the main page of the repository.
-* In `bot/reacharge_flow.py`, line 24, edit the value with the exact filename of the QR code you just uploaded.
+| File | Purpose |
+|---|---|
+| `bot.py` | Main bot handlers and application logic |
+| `config.py` | Loads bot token and admin IDs from environment variables |
+| `mustjoin.py` | Required-channel membership check and join prompt |
+| `recharge_flow.py` | UPI and crypto recharge handlers |
+| `oxapay.py` | OxaPay invoice and payment-status API helpers |
+| `db.py` | SQLAlchemy database models (separate from the MongoDB collections used in `bot.py`) |
+| `requirements.txt` | Python dependencies |
+| `runtime.txt` | Python runtime declaration |
+| `__main__.py` | Package entry-point helper |
 
-### 5. Crypto Automation Setup
-* First, create a wallet using [OxaPay](https://oxapay.com/wallet).
-* Collect your merchant API key.
-* Locate `bot/oxapay.py` and carefully change `API_KEY` with your new key.
+## Requirements
 
-### 6. Hosting
-* Use Heroku for reliable and easy hosting!
+- Python 3.10 or newer.
+- A Telegram bot token from [@BotFather](https://t.me/BotFather).
+- A MongoDB database.
+- Telegram API ID and API hash from [my.telegram.org](https://my.telegram.org).
+- An OxaPay merchant API key if crypto recharge is enabled.
+- A UPI ID and a QR image if UPI recharge is enabled.
 
-</details>
+## Configuration
 
-<br>
+Set these environment variables in your hosting provider:
 
-- Set env vars: `BOT_TOKEN`, `MONGODB_URI`, `ADMIN_IDS` (comma-separated), `CURRENCY_SYMBOL` (optional), `DEFAULT_PRICE`.
-- Deploy to Heroku by pushing this repo and setting configs.
-- Deploy within a minute through Heroku.
+| Variable | Required | Description |
+|---|---|---|
+| `BOT_TOKEN` | Yes | Telegram bot token |
+| `ADMIN_IDS` | Yes | Admin Telegram user IDs, comma-separated |
+| `MONGO_URI` | Yes | MongoDB connection URI used by `bot.py` |
+| `API_ID` | When Telethon workflow is used | Telegram API ID |
+| `API_HASH` | When Telethon workflow is used | Telegram API hash |
 
-## Easy deployment url :
-[Deploy to Heroku](http://dashboard.heroku.com/new?template=https://github.com/{github_username}/{repository})
+Example format (replace the sample values with your own; do not commit real credentials):
 
-> **Note:** Please replace `{github_username}` and `{repository}` with your actual variables before using the link!!
+```env
+BOT_TOKEN=123456:replace_with_your_bot_token
+ADMIN_IDS=123456789,987654321
+MONGO_URI=mongodb+srv://username:password@cluster.example.mongodb.net/
+API_ID=12345678
+API_HASH=replace_with_your_api_hash
+```
+
+The current source also contains additional settings that must be reviewed before deployment:
+
+- `mustjoin.py`: required channel IDs and invite links.
+- `recharge_flow.py`: UPI ID, INR/USDT conversion rate, minimum crypto amount, and QR image path (`QR.jpg`).
+- `oxapay.py`: replace the placeholder API key with a securely configured merchant key before enabling crypto payments. Prefer loading it from an environment variable rather than hard-coding it.
+- `bot.py`: review the bot username, support/updates links, and any remaining deployment-specific values.
+
+**Do not publish real credentials or private invite links.** If any real token, API hash, database password, or payment key has been committed, rotate it.
+
+## Installation
+
+1. Clone this repository.
+2. Create and activate a virtual environment.
+3. Install the dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configure the environment variables listed above.
+5. Review the project-specific settings and add the UPI QR image if UPI recharge is enabled.
+6. Start the bot using the entry point configured for your deployment. Verify the actual startup command for your host before deploying; this repository does not currently include a deployment-specific Procfile.
+
+## Deployment checklist
+
+- [ ] Set all required environment variables.
+- [ ] Confirm MongoDB network access and database permissions.
+- [ ] Confirm the bot is an administrator in each required channel so membership checks can work.
+- [ ] Configure the UPI ID and upload the correct QR image, if using UPI.
+- [ ] Configure and test OxaPay credentials, if using crypto.
+- [ ] Keep secrets out of source control and rotate any credentials previously exposed.
+- [ ] Test user, admin, recharge, and purchase flows with a test account before going live.
+
+## Notes
+
+The repository currently contains both MongoDB-based application code and a separate SQLAlchemy model file. The main bot code uses MongoDB collections; do not assume that the SQLAlchemy models in `db.py` are wired into the running bot.
+
+This README describes the files and configuration currently present in the repository. Update it whenever the code, environment variables, or deployment process changes.
