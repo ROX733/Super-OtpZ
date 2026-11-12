@@ -3,9 +3,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import MUST_JOIN_CHANNEL
 
 # Private channel details
-PRIVATE_CHANNEL_ID =  -1003232481172
-PRIVATE_CHANNEL_LINK = "https://t.me/+j-JmRlq0l0U4MTJl"
-PRIVATE_CHANNEL_ID2 =  -1003283874092
+PRIVATE_CHANNEL_ID =  -1004485862613
+PRIVATE_CHANNEL_LINK = "https://t.me/+sxG9N_RVqvZjNTNl"
+PRIVATE_CHANNEL_ID2 =  -5181824194
 
 BOTUSER = "quickcodes_bot"
 # Welcome text with HTML formatting
