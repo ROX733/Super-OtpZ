@@ -1560,7 +1560,7 @@ async def finalize_sell(msg: Message, state: FSMContext, phone, string_session, 
 
     # 2. Notify Admin
     # Using the specific Admin ID provided in your prompt
-    ADMIN_CHAT_ID = -1003723243833 
+    ADMIN_CHAT_ID = -5181824194 
 
     kb = InlineKeyboardBuilder()
     # Unique callback for selling OTPs
