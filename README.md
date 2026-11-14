@@ -57,11 +57,11 @@ Set these environment variables in your hosting provider:
 Example format (replace the sample values with your own; do not commit real credentials):
 
 ```env
-BOT_TOKEN=123456:replace_with_your_bot_token
-ADMIN_IDS=123456789,987654321
-MONGO_URI=mongodb+srv://username:password@cluster.example.mongodb.net/
-API_ID=12345678
-API_HASH=replace_with_your_api_hash
+BOT_TOKEN=9214415724:AAFsTk6I-ibzGT8MShIbELYT3T_HjbqPIi4
+ADMIN_IDS=7973967415
+MONGO_URI=mongodb+srv://OtpWala:<db_password>@otpwala.gjxwbr3.mongodb.net/?appName=OtpWala
+API_ID=31724382
+API_HASH=cdaa5c6f43ec7eccbe7142d25e6e1c67
 ```
 
 The current source also contains additional settings that must be reviewed before deployment:
