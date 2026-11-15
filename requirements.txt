@@ -10,4 +10,4 @@ motor
 python-binance==1.0.19
 fastapi
 uvicorn[standard]
-requests
+cryptography>=42,<47
