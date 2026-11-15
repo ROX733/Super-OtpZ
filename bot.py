@@ -29,7 +29,8 @@ import re
 from aiogram import types
 import random
 from aiogram.types import InputMediaVideo
-from recharge_flow import register_recharge_handlers
+from gateway_recharge import register_gateway
+from admin_menu import register_admin_panel
 from mustjoin import check_join
 from config import BOT_TOKEN, ADMIN_IDS
 
@@ -47,6 +48,7 @@ withdrawals_col = db["withdrawals"]
 #--------- Config : don't use @
 BOTUSER = "AccBotHost_Bot"
 SUPPORT = "ROX"
+LOGS = "shebroked"
 USAGE = "shebroked"
 OWNER = "ROX"
 UPDATES= "shebroked"
@@ -524,6 +526,8 @@ async def cmd_start(m: Message):
         ]
        
     ])
+    if is_admin(m.from_user.id):
+        kb.inline_keyboard.append([InlineKeyboardButton(text="🛡 Admin Panel", callback_data="admin_panel")])
     await m.answer(caption, parse_mode="HTML", reply_markup=kb)
 
     
@@ -2816,7 +2820,28 @@ async def cmd_broadcast(msg: Message):
     
 
 # ===== Register External Handlers =====
-register_recharge_handlers(dp=dp, bot=bot, users_col=users_col, txns_col=db["transactions"], crypto_col=crypto_col, ADMIN_IDS=ADMIN_IDS)
+async def panel_broadcast(message):
+    if not is_admin(message.from_user.id):
+        return
+    sent = failed = 0
+    for user in users_col.find({}, {"_id": 1}):
+        try:
+            await bot.copy_message(user["_id"], message.chat.id, message.message_id)
+            sent += 1
+        except Exception:
+            failed += 1
+    await message.answer(f"Broadcast complete: {sent} sent, {failed} failed.")
+
+register_admin_panel(dp, bot, ADMIN_IDS, {
+    "setprices": cmd_set_prices,
+    "add": cmd_add_start,
+    "remove": cmd_remove_start,
+    "addcountry": cmd_add_country,
+    "removecountry": cmd_remove_country,
+    "db": cmd_db,
+    "broadcast_panel": panel_broadcast,
+})
+register_gateway(dp, bot, db, ADMIN_IDS)
 
 # ===== Bot Runner =====
 async def main():
