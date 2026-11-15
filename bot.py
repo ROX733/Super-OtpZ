@@ -3,6 +3,8 @@
 #-------------------------------------------------------
 import os
 import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from aiogram import BaseMiddleware
 from typing import Callable, Dict, Any, Awaitable
 from aiogram.types import TelegramObject
@@ -2858,8 +2860,34 @@ register_admin_panel(dp, bot, ADMIN_IDS, {
 })
 register_gateway(dp, bot, db, ADMIN_IDS)
 
+# ===== Render Free Web Service HTTP health endpoint =====
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path not in ("/", "/health"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = b"Super-OtpZ process running"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", "10000"))
+    server = ThreadingHTTPServer(("0.0.0.0", port), HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True, name="render-health").start()
+    print(f"HTTP health server listening on port {port}", flush=True)
+
+
 # ===== Bot Runner =====
 async def main():
+    start_health_server()
     print("Bot started.")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
