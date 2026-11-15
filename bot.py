@@ -80,6 +80,21 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 dp.update.middleware(BanCheckMiddleware()) # <--- ADD THIS LINE
 
+class AdminActionMiddleware(BaseMiddleware):
+    """Protect existing admin-only callback workflows, not just their menu buttons."""
+    ADMIN_PREFIXES = ("add_country:", "remove_country:", "admin_do:", "gw_")
+    ADMIN_EXACT = {"admin_panel"}
+    async def __call__(self, handler, event, data):
+        callback = data.get("event_callback_query")
+        if callback and callback.from_user:
+            action = callback.data or ""
+            if (action in self.ADMIN_EXACT or action.startswith(self.ADMIN_PREFIXES)) and not is_admin(callback.from_user.id):
+                await callback.answer("❌ Not authorized.", show_alert=True)
+                return
+        return await handler(event, data)
+
+dp.update.middleware(AdminActionMiddleware())
+
 
 # ================= FSM =================
 class AddSession(StatesGroup):
