@@ -85,7 +85,7 @@ class AdminActionMiddleware(BaseMiddleware):
     ADMIN_PREFIXES = ("add_country:", "remove_country:", "admin_do:", "gw_")
     ADMIN_EXACT = {"admin_panel"}
     async def __call__(self, handler, event, data):
-        callback = data.get("event_callback_query")
+        callback = data.get("event_callback_query") or getattr(event, "callback_query", None)
         if callback and callback.from_user:
             action = callback.data or ""
             if (action in self.ADMIN_EXACT or action.startswith(self.ADMIN_PREFIXES)) and not is_admin(callback.from_user.id):
