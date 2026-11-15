@@ -1,104 +1,38 @@
-# Super OtpZ
+# Super-OtpZ
 
-A Telegram account marketplace bot built with **Python**, **Aiogram 3**, **MongoDB**, and **Telethon**.
+Telegram bot using Aiogram 3, Telethon, and MongoDB.
 
-The bot provides a Telegram-based interface for browsing available account stock, managing user balances, placing orders, and handling recharge requests. It also includes admin utilities and channel-membership checks.
+## Changes on feature/fampay-admin-panel
 
-> **Important:** Review Telegram's terms and applicable laws before operating an account marketplace. Never upload API credentials, bot tokens, database credentials, payment keys, or user session data to a public repository.
+- Admin-only /admin panel and admin button in /start.
+- Buttons for existing /setprices, /add, /remove, /addcountry, /removecountry, /db and /broadcast workflows.
+- Single FamPay API token management from Telegram admin panel (add/replace/remove).
+- FamPay automatic recharge: QR creation via POST /fam_create and verification via POST /fam_verify.
+- Atomic per-user order-credit guard to prevent duplicate balance increments.
+- Legacy manual UPI screenshot and OxaPay recharge modules removed from this branch.
 
-## Features
+## Required environment variables (when hosting later)
 
-- Telegram bot interface with inline menus.
-- User profiles and balance tracking.
-- Country-based stock and purchase workflow.
-- Admin tools for managing stock, pricing, users, and transactions.
-- Required-channel membership verification.
-- Balance recharge options:
-  - INR / UPI payment flow with QR image and manual review.
-  - OxaPay crypto invoice creation and payment-status checking.
-- MongoDB-backed user, stock, order, and payment records.
-- Telethon integration used by the project’s Telegram-account workflow.
+- BOT_TOKEN
+- ADMIN_IDS (comma-separated numeric Telegram user IDs)
+- MONGO_URI
+- API_ID and API_HASH for Telethon workflows
+- GATEWAY_ENCRYPTION_KEY (Fernet key; generate securely and keep stable across restarts)
 
-## Project files
+The gateway URL is https://fampay-api-7msf.onrender.com.
 
-| File | Purpose |
-|---|---|
-| `bot.py` | Main bot handlers and application logic |
-| `config.py` | Loads bot token and admin IDs from environment variables |
-| `mustjoin.py` | Required-channel membership check and join prompt |
-| `recharge_flow.py` | UPI and crypto recharge handlers |
-| `oxapay.py` | OxaPay invoice and payment-status API helpers |
-| `db.py` | SQLAlchemy database models (separate from the MongoDB collections used in `bot.py`) |
-| `requirements.txt` | Python dependencies |
-| `runtime.txt` | Python runtime declaration |
-| `__main__.py` | Package entry-point helper |
+**Security:** Keep tokens and secrets out of GitHub. Previously committed credentials should be rotated. The gateway token is encrypted in MongoDB; the encryption key must be provided through Render environment settings. Never lose the encryption key while an encrypted token is stored.
 
-## Requirements
+## Running
 
-- Python 3.10 or newer.
-- A Telegram bot token from [@BotFather](https://t.me/BotFather).
-- A MongoDB database.
-- Telegram API ID and API hash from [my.telegram.org](https://my.telegram.org).
-- An OxaPay merchant API key if crypto recharge is enabled.
-- A UPI ID and a QR image if UPI recharge is enabled.
+Install requirements with `pip install -r requirements.txt` and run `python bot.py`.
 
-## Configuration
+## Before deployment
 
-Set these environment variables in your hosting provider:
-
-| Variable | Required | Description |
-|---|---|---|
-| `BOT_TOKEN` | Yes | Telegram bot token |
-| `ADMIN_IDS` | Yes | Admin Telegram user IDs, comma-separated |
-| `MONGO_URI` | Yes | MongoDB connection URI used by `bot.py` |
-| `API_ID` | When Telethon workflow is used | Telegram API ID |
-| `API_HASH` | When Telethon workflow is used | Telegram API hash |
-
-Example format (replace the sample values with your own; do not commit real credentials):
-
-```env
-BOT_TOKEN=9214415724:AAFsTk6I-ibzGT8MShIbELYT3T_HjbqPIi4
-ADMIN_IDS=7973967415
-MONGO_URI=mongodb+srv://OtpWala:<db_password>@otpwala.gjxwbr3.mongodb.net/?appName=OtpWala
-API_ID=31724382
-API_HASH=cdaa5c6f43ec7eccbe7142d25e6e1c67
-```
-
-The current source also contains additional settings that must be reviewed before deployment:
-
-- `mustjoin.py`: required channel IDs and invite links.
-- `recharge_flow.py`: UPI ID, INR/USDT conversion rate, minimum crypto amount, and QR image path (`QR.jpg`).
-- `oxapay.py`: replace the placeholder API key with a securely configured merchant key before enabling crypto payments. Prefer loading it from an environment variable rather than hard-coding it.
-- `bot.py`: review the bot username, support/updates links, and any remaining deployment-specific values.
-
-**Do not publish real credentials or private invite links.** If any real token, API hash, database password, or payment key has been committed, rotate it.
-
-## Installation
-
-1. Clone this repository.
-2. Create and activate a virtual environment.
-3. Install the dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Configure the environment variables listed above.
-5. Review the project-specific settings and add the UPI QR image if UPI recharge is enabled.
-6. Start the bot using the entry point configured for your deployment. Verify the actual startup command for your host before deploying; this repository does not currently include a deployment-specific Procfile.
-
-## Deployment checklist
-
-- [ ] Set all required environment variables.
-- [ ] Confirm MongoDB network access and database permissions.
-- [ ] Confirm the bot is an administrator in each required channel so membership checks can work.
-- [ ] Configure the UPI ID and upload the correct QR image, if using UPI.
-- [ ] Configure and test OxaPay credentials, if using crypto.
-- [ ] Keep secrets out of source control and rotate any credentials previously exposed.
-- [ ] Test user, admin, recharge, and purchase flows with a test account before going live.
-
-## Notes
-
-The repository currently contains both MongoDB-based application code and a separate SQLAlchemy model file. The main bot code uses MongoDB collections; do not assume that the SQLAlchemy models in `db.py` are wired into the running bot.
-
-This README describes the files and configuration currently present in the repository. Update it whenever the code, environment variables, or deployment process changes.
+1. Validate Python imports and run bot startup in a test environment.
+2. Test every admin panel button and confirm non-admin callbacks cannot access admin actions.
+3. Test gateway payment creation, QR display, pending/paid/expired statuses, and duplicate checks.
+4. Confirm FamPay Gateway persists orders, verified transactions and API keys across restarts.
+5. Test behavior when the API token is replaced during an outstanding order.
+6. Review exposed credentials, API security, and the Telegram-account session workflow.
+7. Configure and test MongoDB Atlas access and Render worker.
