@@ -938,7 +938,7 @@ async def add_account_country(msg: Message, state: FSMContext):
     if country_name.lower() == "cancel":
         await state.clear()
         return await msg.answer("❌ Cancelled.")
-    if not country_name or len(country_name) > 50 or any(ch in country_name for ch in "<>\\n\\r"):
+    if not country_name or len(country_name) > 50 or any(ch in "<>" or ord(ch) in (10, 13) for ch in country_name):
         return await msg.answer("❌ Enter a valid country name (up to 50 characters).")
     existing = countries_col.find_one({"name": {"$regex": "^" + re.escape(country_name) + "$", "$options": "i"}})
     country_name = existing["name"] if existing else country_name
