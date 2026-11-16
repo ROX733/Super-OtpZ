@@ -764,153 +764,120 @@ async def callback_country(cq: CallbackQuery):
     if not country:
         return await cq.answer("❌ Country not found", show_alert=True)
 
-    text = (
-        f"<b>Click Buy to Purchase an account:</b>\n––––––––––––—————–•\n"
-        f"<blockquote> <b>Country: {html.escape(country['name'])}</b> </blockquote>\n"
-        f"◍ <b><u>Price</u></b>: ₹{country['price']}\n"
-        f"◍ <b><u>Stock</u></b>: {country['stock']}\n"
-        f"◍ <b><u>Server</u></b> - (1)\n––––––––––––—————–•"
-    )
-
+    # Group unsold accounts by the metadata entered by the admin.
+    accounts = list(numbers_col.find({"country": country_name, "used": False}))
+    groups = {}
+    for account in accounts:
+        key = (account.get("year"), account.get("category", "Good"),
+               account.get("status", "Good"), float(account.get("price") or country.get("price") or 0))
+        groups.setdefault(key, 0)
+        groups[key] += 1
+    lines = ["📅 <b>SELECT ACCOUNT YEAR</b>", f"🌍 <b>Country:</b> {html.escape(country_name)}"]
     kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="▪️ Buy", callback_data=f"buy_now:{country_name}")
-    )
-    kb.row(
-        InlineKeyboardButton(text="▪️ Back", callback_data="buy_server1")
-    )
-
-    await cq.message.edit_text(text, parse_mode="HTML", reply_markup=kb.as_markup())
-# ================= Buy Now Flow =================
-
-
-
-# ================= Buy Now: Validation & Terms =================
-@dp.callback_query(F.data.startswith("buy_now:"))
-async def callback_buy_start(cq: CallbackQuery, state: FSMContext):
-    # Clear any previous states to avoid conflicts
-    await state.clear()
-    
-    _, country_name = cq.data.split(":", 1)
-    
-    # Fetch Data Asynchronously
-    country, user = await asyncio.to_thread(lambda: (
-        countries_col.find_one({"name": country_name}),
-        get_or_create_user(cq.from_user.id, cq.from_user.username)
-    ))
-
-    # 1. Validate Country Existence
-    if not country:
-        return await cq.answer("❌ Country data not found.", show_alert=True)
-
-    country_price = country["price"]
-    country_stock = country["stock"]
-    user_balance = user.get("balance", 0.0)
-
-    # 2. Validate Stock
-    if country_stock < 1:
-        return await cq.answer(f"⚠️ Out of Stock! No accounts left for {country_name}.", show_alert=True)
-
-    # 3. Validate Balance (If low, show Recharge prompt immediately)
-    if user_balance < country_price:
-        text = (
-            f"🚫 <b>Insufficient Balance</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 <b>Required:</b> ₹{country_price:.2f}\n"
-            f"💰 <b>Your Balance:</b> ₹{user_balance:.2f}\n"
-            f"📉 <b>Shortage:</b> ₹{country_price - user_balance:.2f}\n\n"
-            f"<i>Please recharge your wallet to continue.</i>"
-        )
-        kb = InlineKeyboardBuilder()
-        kb.row(InlineKeyboardButton(text="💳 Recharge Now", callback_data="recharge"))
-        kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"country:{country_name}"))
-        
-        return await cq.message.edit_text(text, parse_mode="HTML", reply_markup=kb.as_markup())
-
-    # 4. Show Terms & Confirmation (Balance & Stock are OK)
-    terms_text = (
-        f"⚠️ <b>Account Buying Terms</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Please review the rules before purchasing <b>1 {country_name}</b> account:\n\n"
-        f"🚫 <b>No Refunds:</b> All sales are final.\n"
-        f"📨 <b>OTP Policy:</b> Once OTP is received, no return allowed.\n"
-        f"❄️ <b>Freeze/Limit:</b> Accounts are fresh; we are not responsible for limits after use.\n"
-        f"⏳ <b>Warranty:</b> 10 Minutes to check the account.\n\n"
-        f"🏷️ <b>Price:</b> ₹{country_price:.2f}\n"
-        f"❓ <b>Do you accept these terms?</b>"
-    )
-
-    kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="✅ Accept", callback_data=f"confirm_buy:{country_name}"),
-        InlineKeyboardButton(text="❌ Decline", callback_data=f"country:{country_name}")
-    )
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data=f"country:{country_name}"))
-
-    await cq.message.edit_text(terms_text, parse_mode="HTML", reply_markup=kb.as_markup())
+    for (year, category, status, price), count in groups.items():
+        label = ("🟢 HEALTHY" if status == "Good" else
+                 "🟠 TEMPORARY SPAM" if status == "Temporary Spam" else
+                 "🔴 PERMANENT SPAM" if status == "Permanent Spam" else html.escape(str(category)))
+        lines.append(f"\n{label} | {year or 'Unknown'} | ₹{price:g} | {count} Account(s)")
+        kb.row(InlineKeyboardButton(
+            text=f"{year or 'Unknown'} | ₹{price:g} | {count} | {label}",
+            callback_data=f"select_stock:{list(groups).index((year, category, status, price))}"
+        ))
+    if not groups:
+        lines.append("\n⚠️ Out of stock.")
+    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="buy_server1"))
+    await cq.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=kb.as_markup())
 
 
-# ================= Purchase Execution (Quantity = 1) =================
-@dp.callback_query(F.data.startswith("confirm_buy:"))
-async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
-    _, country_name = cq.data.split(":", 1)
-    user_id = cq.from_user.id
-    quantity = 1  # Hardcoded as per requirement
-
-    # Re-fetch data to ensure stock/balance didn't change while reading terms
+@dp.callback_query(F.data.startswith("select_stock:"))
+async def select_stock(cq: CallbackQuery, state: FSMContext):
+    await cq.answer()
+    # Country is recovered from the original menu's message rather than client input.
+    # Re-render selections if the menu is stale.
+    text = cq.message.text or ""
+    match = re.search(r"Country:\\s*(.+)", text)
+    if not match:
+        return await cq.message.answer("Selection expired. Select country again.")
+    country_name = match.group(1).splitlines()[0].strip()
     country = countries_col.find_one({"name": country_name})
-    user = users_col.find_one({"_id": user_id})
-
-    # --- Safety Checks ---
     if not country:
-        return await cq.answer("❌ Error: Country missing.", show_alert=True)
-    
-    if country["stock"] < 1:
-        await cq.answer("⚠️ Just sold out! Stock is now 0.", show_alert=True)
-        return await send_country_menu(cq) # Redirect to menu
+        return await cq.message.answer("Country unavailable. Select again.")
+    groups = {}
+    for account in numbers_col.find({"country": country_name, "used": False}):
+        key = (account.get("year"), account.get("category", "Good"),
+               account.get("status", "Good"), float(account.get("price") or country.get("price") or 0))
+        groups.setdefault(key, []).append(account)
+    index = int(cq.data.split(":", 1)[1])
+    keys = list(groups)
+    if index < 0 or index >= len(keys):
+        return await cq.message.answer("Stock changed. Select country again.")
+    key = keys[index]
+    account = groups[key][0]
+    price = key[3]
+    if price <= 0:
+        return await cq.message.answer("Price missing. Contact admin.")
+    user = get_or_create_user(cq.from_user.id, cq.from_user.username)
+    if user.get("balance", 0) < price:
+        return await cq.message.answer(f"❌ Insufficient balance. Required ₹{price:g}.")
+    await state.update_data(selected_stock={"country": country_name, "year": key[0],
+                           "category": key[1], "status": key[2], "price": price})
+    label = ("🟢 HEALTHY" if key[2] == "Good" else
+             "🟠 TEMPORARY SPAM" if key[2] == "Temporary Spam" else
+             "🔴 PERMANENT SPAM" if key[2] == "Permanent Spam" else html.escape(str(key[1])))
+    terms = (f"⚠️ <b>Account Buying Terms</b>\n\n🌍 Country: {html.escape(country_name)}\n"
+             f"📅 Year: {key[0] or 'Unknown'}\n🏷️ Category: {label}\n"
+             f"💰 Price: ₹{price:g}\n\n🚫 No refunds after successful OTP delivery.\n"
+             "❓ Do you accept these terms?")
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Accept", callback_data="confirm_stock"),
+        InlineKeyboardButton(text="❌ Decline", callback_data=f"country:{country_name}")
+    ]])
+    await cq.message.edit_text(terms, parse_mode="HTML", reply_markup=kb)
 
-    if user["balance"] < country["price"]:
-        await cq.answer("❌ Insufficient balance.", show_alert=True)
-        return # Optionally redirect to recharge
 
-    # --- Fetch Unused Number ---
-    # We use find_one_and_update (Atomic operation) or find then update
-    # Here we fetch one unused number
-    number_doc = numbers_col.find_one({"country": country_name, "used": False})
-    
+@dp.callback_query(F.data == "confirm_stock")
+async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
+    await cq.answer()
+    selection = (await state.get_data()).get("selected_stock")
+    if not selection:
+        return await cq.message.answer("Selection expired. Select country again.")
+    country_name = selection["country"]
+    user_id = cq.from_user.id
+    country = countries_col.find_one({"name": country_name})
+    if not country:
+        return await cq.message.answer("Country unavailable.")
+    price = selection["price"]
+    from pymongo import ReturnDocument
+    # Reserve one matching account only once, preventing duplicate purchases.
+    query = {"country": country_name, "used": False,
+             "year": selection["year"], "category": selection["category"],
+             "status": selection["status"], "price": price}
+    number_doc = numbers_col.find_one_and_update(
+        query, {"$set": {"used": True, "reserved_by": user_id}},
+        return_document=ReturnDocument.AFTER
+    )
     if not number_doc:
-        # Stock count mismatch safety
-        countries_col.update_one({"name": country_name}, {"$set": {"stock": 0}})
-        return await cq.answer("⚠️ System Error: Stock mismatch. Contact Admin.", show_alert=True)
-
-    # --- Calculate New Balance ---
-    price = country["price"]
-    new_balance = user["balance"] - price
-
-    # --- EXECUTE DB TRANSACTION ---
+        return await cq.message.answer("⚠️ Selected stock sold out. Choose again.")
+    debit = users_col.update_one({"_id": user_id, "balance": {"$gte": price}},
+                                 {"$inc": {"balance": -price}})
+    if not debit.modified_count:
+        numbers_col.update_one({"_id": number_doc["_id"], "reserved_by": user_id},
+                               {"$set": {"used": False}, "$unset": {"reserved_by": ""}})
+        return await cq.message.answer("❌ Insufficient balance.")
     try:
-        # 1. Deduct Balance
-        users_col.update_one({"_id": user_id}, {"$set": {"balance": new_balance}})
-        
-        # 2. Mark Number as Used
-        numbers_col.update_one({"_id": number_doc["_id"]}, {"$set": {"used": True}})
-        
-        # 3. Create Order Log
         orders_col.insert_one({
-            "user_id": user_id,
-            "country": country_name,
-            "number": number_doc["number"],
-            "price": price,
-            "status": "purchased",
-            "created_at": datetime.now(timezone.utc)
+            "user_id": user_id, "country": country_name, "number": number_doc["number"],
+            "price": price, "year": selection["year"], "category": selection["category"],
+            "status": "purchased", "created_at": datetime.now(timezone.utc)
         })
-        
-        # 4. Decrease Stock
         countries_col.update_one({"name": country_name}, {"$inc": {"stock": -1}})
-        
-    except Exception as e:
-        print(f"Transaction Error: {e}")
-        return await cq.answer("❌ Transaction failed. Please try again.", show_alert=True)
+    except Exception:
+        users_col.update_one({"_id": user_id}, {"$inc": {"balance": price}})
+        numbers_col.update_one({"_id": number_doc["_id"], "reserved_by": user_id},
+                               {"$set": {"used": False}, "$unset": {"reserved_by": ""}})
+        return await cq.message.answer("❌ Purchase failed. Balance restored; contact support.")
+    await state.update_data(selected_stock=None)
+    new_balance = get_user_balance(user_id)
 
     # --- Send Success Message ---
     text_to_copy = str(number_doc["number"])
