@@ -32,6 +32,7 @@ from aiogram import types
 import random
 from aiogram.types import InputMediaVideo
 from gateway_recharge import register_gateway
+from manual_recharge import register_manual_recharge
 from admin_menu import register_admin_panel
 from mustjoin import check_join
 from config import BOT_TOKEN, ADMIN_IDS
@@ -84,7 +85,7 @@ dp.update.middleware(BanCheckMiddleware()) # <--- ADD THIS LINE
 
 class AdminActionMiddleware(BaseMiddleware):
     """Protect existing admin-only callback workflows, not just their menu buttons."""
-    ADMIN_PREFIXES = ("add_country:", "remove_country:", "admin_do:", "gw_")
+    ADMIN_PREFIXES = ("add_country:", "remove_country:", "admin_do:", "gw_", "adm_", "stk:", "mr:approve:", "mr:reject:", "mr:custom:")
     ADMIN_EXACT = {"admin_panel"}
     async def __call__(self, handler, event, data):
         callback = data.get("event_callback_query") or getattr(event, "callback_query", None)
@@ -2912,6 +2913,7 @@ register_admin_panel(dp, bot, ADMIN_IDS, {
     "users_col": users_col,
 })
 register_gateway(dp, bot, db, ADMIN_IDS)
+register_manual_recharge(dp, bot, db, ADMIN_IDS)
 
 # ===== Render Free Web Service HTTP health endpoint =====
 class HealthHandler(BaseHTTPRequestHandler):
