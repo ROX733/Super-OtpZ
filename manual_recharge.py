@@ -42,7 +42,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
     async def recharge_options(cq):
         kb = InlineKeyboardBuilder()
         kb.button(text="⚡ Automatic UPI", callback_data="gw_recharge")
-        if enabled() and methods.count_documents({}):
+        if enabled() and methods.count_documents({"enabled": {"$ne": False}}):
             kb.button(text="💳 Manual Payment", callback_data="manual_recharge")
         kb.button(text="⬅️ Main Menu", callback_data="back_main")
         kb.adjust(1)
@@ -53,7 +53,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
     async def choose_method(cq):
         if not enabled():
             return await cq.answer("Manual recharge unavailable", show_alert=True)
-        available = list(methods.find({}).limit(40))
+        available = list(methods.find({"enabled": {"$ne": False}}).limit(40))
         kb = InlineKeyboardBuilder()
         for method in available:
             kb.button(text=method["name"][:45], callback_data=f"mr:method:{method['_id']}")
@@ -71,7 +71,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             method = methods.find_one({"_id": ObjectId(cq.data.split(":")[2])})
         except Exception:
             method = None
-        if not method:
+        if not method or method.get("enabled") is False:
             return await cq.answer("Payment method unavailable", show_alert=True)
         await state.set_state(ManualRecharge.amount)
         await state.update_data(method_id=str(method["_id"]), panel_chat=cq.message.chat.id,
@@ -91,7 +91,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             return await message.answer("❌ Enter a valid INR amount (₹1–₹100000).")
         data = await state.get_data()
         method = methods.find_one({"_id": ObjectId(data["method_id"])})
-        if not enabled() or not method:
+        if not enabled() or not method or method.get("enabled") is False:
             await state.clear()
             return await message.answer("Method no longer available.")
         await state.update_data(amount=str(amount))
@@ -108,7 +108,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             return await message.answer("❌ Send a screenshot/photo of payment proof.")
         data = await state.get_data()
         method = methods.find_one({"_id": ObjectId(data["method_id"])})
-        if not method or not enabled():
+        if not method or method.get("enabled") is False or not enabled():
             await state.clear()
             return await message.answer("Payment method unavailable.")
         doc = {"user_id": message.from_user.id, "amount": data["amount"], "method_id": data["method_id"],
