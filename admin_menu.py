@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 ACTIONS = [
     ("💰 Set Sell Prices", "setprices"),
     ("💳 Add Balance", "addbalance"),
+    ("➖ Deduct Balance", "deductbalance"),
     ("➕ Add Number", "add"),
     ("➖ Remove Number", "remove"),
     ("🌍 Add Country", "addcountry"),
@@ -54,10 +55,11 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         command = cq.data.partition(":")[2]
-        if command == "addbalance":
+        if command in {"addbalance", "deductbalance"}:
             await state.clear()
+            await state.update_data(balance_operation=command)
             await state.set_state(AdminBalance.waiting_user)
-            await cq.message.answer("💳 Send the Telegram numeric User ID to credit. /cancel to stop.")
+            await cq.message.answer("💳 Send the Telegram numeric User ID. /cancel to stop.")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
             await cq.message.answer("📢 Send the message to broadcast. /cancel to stop.")
@@ -102,7 +104,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await message.answer("❌ Enter a valid numeric Telegram User ID.")
         await state.update_data(balance_target=int(value))
         await state.set_state(AdminBalance.waiting_amount)
-        await message.answer("💰 Enter amount to ADD in INR (example: 100). /cancel to stop.")
+        operation = (await state.get_data()).get("balance_operation")
+        await message.answer(f"💰 Enter amount to {'DEDUCT' if operation == 'deductbalance' else 'ADD'} in INR (example: 100). /cancel to stop.")
 
     @dp.message(StateFilter(AdminBalance.waiting_amount))
     async def balance_amount(message: Message, state):
@@ -124,19 +127,21 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         target = data["balance_target"]
         users_col = handlers["users_col"]
         # Only existing users can be credited, avoiding accidental new accounts.
+        deduct = data.get("balance_operation") == "deductbalance"
+        condition = {"_id": target, "balance": {"$gte": float(amount)}} if deduct else {"_id": target}
         updated = users_col.find_one_and_update(
-            {"_id": target}, {"$inc": {"balance": float(amount)}},
+            condition, {"$inc": {"balance": -float(amount) if deduct else float(amount)}},
             return_document=ReturnDocument.AFTER
         )
         if not updated:
-            return await message.answer("❌ User not found. Check the User ID or /cancel.")
+            return await message.answer("❌ User not found or insufficient balance for deduction. Check User ID/amount or /cancel.")
         await state.clear()
         await message.answer(
-            f"✅ Balance Added!\\n🆔 User ID: <code>{target}</code>\\n"
-            f"➕ Added: ₹{amount:.2f}\\n💰 New Balance: ₹{updated.get('balance', 0):.2f}",
+            f"✅ Balance {'Deducted' if deduct else 'Added'}!\\n🆔 User ID: <code>{target}</code>\\n"
+            f"{'➖ Deducted' if deduct else '➕ Added'}: ₹{amount:.2f}\\n💰 New Balance: ₹{updated.get('balance', 0):.2f}",
             parse_mode="HTML"
         )
         try:
-            await bot.send_message(target, f"💰 Your wallet has been credited ₹{amount:.2f} by admin.")
+            await bot.send_message(target, f"💰 Your wallet has been {'debited' if deduct else 'credited'} ₹{amount:.2f} by admin.")
         except Exception:
             pass
