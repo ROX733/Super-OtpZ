@@ -35,6 +35,9 @@ class PaymentMethodState(StatesGroup):
     qr = State()
     caption = State()
 
+class SingleStockPrice(StatesGroup):
+    waiting = State()
+
 class StockPrice(StatesGroup):
     waiting_price = State()
 
@@ -102,6 +105,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text=("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON"), callback_data="admin_toggle_maintenance")
         kb.button(text="➕ Add Single Acc", callback_data="admin_do:add")
         kb.button(text="📊 Manage Stock", callback_data="admin_stock_info")
+        kb.button(text="📞 Search / Price Account", callback_data="adm_single_price")
         kb.button(text="💰 Set Account Prices", callback_data="admin_do:setprices")
         kb.button(text="📈 Statistics", callback_data="admin_do:db")
         kb.button(text="📢 Broadcast", callback_data="admin_do:broadcast")
@@ -615,6 +619,54 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.adjust(1)
         await cq.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
 
+    @dp.callback_query(F.data == "adm_single_price")
+    async def single_price_start(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        await state.set_state(SingleStockPrice.waiting)
+        await state.update_data(single_chat=cq.message.chat.id, single_message=cq.message.message_id)
+        await cq.message.edit_text("📞 Send phone number and new price (INR).\\n"
+                                   "Example: +919876543210 120\\n"
+                                   "This updates one matching available account. /cancel to abort.")
+        await cq.answer()
+
+    @dp.message(StateFilter(SingleStockPrice.waiting), Command("cancel"))
+    async def single_price_cancel(message, state):
+        await state.clear()
+        await message.answer("Cancelled.")
+
+    @dp.message(StateFilter(SingleStockPrice.waiting))
+    async def single_price_save(message, state):
+        if not is_admin(message.from_user.id, "stock"):
+            await state.clear()
+            return
+        import re
+        parts = (message.text or "").strip().split()
+        if len(parts) != 2 or not re.fullmatch(r"\\+?[0-9]{8,15}", parts[0]):
+            return await message.answer("❌ Format: phone_number price")
+        try:
+            price = Decimal(parts[1])
+            if not price.is_finite() or not Decimal("0.01") <= price <= Decimal("100000") or price.as_tuple().exponent < -2:
+                raise InvalidOperation()
+        except (InvalidOperation, ValueError):
+            return await message.answer("❌ Invalid INR price.")
+        phone = parts[0].lstrip("+")
+        record = numbers.find_one_and_update(
+            {"number": {"$in": [phone, "+" + phone]}, "used": False},
+            {"$set": {"price": float(price)}},
+            return_document=__import__("pymongo").ReturnDocument.AFTER)
+        if not record:
+            return await message.answer("❌ Available account not found.")
+        data = await state.get_data()
+        await state.clear()
+        await bot.edit_message_text(chat_id=data["single_chat"], message_id=data["single_message"],
+                                    text=f"✅ Updated <code>{escape(phone)}</code> to ₹{price:.2f}",
+                                    reply_markup=menu())
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
     @dp.callback_query(F.data == "admin_stock_info")
     async def stock_info(cq):
         if not is_admin(cq.from_user.id):
@@ -662,7 +714,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(StockPrice.waiting_price))
     async def stock_save_price(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "stock"):
             await state.clear()
             return
         try:
