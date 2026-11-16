@@ -60,7 +60,7 @@ def register_gateway(dp, bot, db, admin_ids):
         if not admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         configured = bool(settings.find_one({"_id": "fampay", "token": {"$exists": True}}))
-        await cq.message.answer("🔑 FamPay API Token\nStatus: " + ("Configured" if configured else "Not configured"), reply_markup=gateway_keyboard())
+        await cq.message.edit_text("🔑 FamPay API Token\nStatus: " + ("Configured" if configured else "Not configured"), reply_markup=gateway_keyboard())
         await cq.answer()
 
     @dp.callback_query(F.data == "gw_token_add")
@@ -98,7 +98,7 @@ def register_gateway(dp, bot, db, admin_ids):
         settings.update_one({"_id": "fampay"}, {"$unset": {"token": ""}})
         await cq.answer("Token removed; new recharges disabled.", show_alert=True)
 
-    @dp.callback_query(F.data == "recharge")
+    @dp.callback_query(F.data == "gw_recharge")
     async def recharge(cq, state):
         try:
             token = get_token()
