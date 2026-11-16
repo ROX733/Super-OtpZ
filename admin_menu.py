@@ -47,7 +47,7 @@ class AdminBroadcast(StatesGroup):
 def register_admin_panel(dp, bot, admin_ids, handlers):
     admin_registry = handlers["users_col"].database["subadmins"]
     def is_admin(uid):
-        return uid in admin_ids or bool(admin_registry.find_one({"_id": uid, "active": True}))
+        return uid in admin_ids  # Subadmins remain inactive until per-action enforcement is integrated.
 
     database = handlers["users_col"].database
     settings = database["admin_settings"]
