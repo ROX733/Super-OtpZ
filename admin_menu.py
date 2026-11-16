@@ -18,6 +18,9 @@ ACTIONS = [
     ("📢 Broadcast", "broadcast"),
 ]
 
+class ManageAdmins(StatesGroup):
+    waiting = State()
+
 class RestoreUsers(StatesGroup):
     document = State()
 
@@ -42,8 +45,9 @@ class AdminBroadcast(StatesGroup):
     waiting_message = State()
 
 def register_admin_panel(dp, bot, admin_ids, handlers):
+    admin_registry = handlers["users_col"].database["subadmins"]
     def is_admin(uid):
-        return uid in admin_ids
+        return uid in admin_ids or bool(admin_registry.find_one({"_id": uid, "active": True}))
 
     database = handlers["users_col"].database
     settings = database["admin_settings"]
@@ -70,6 +74,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="📈 Sales Statistics", callback_data="adm_stats")
         kb.button(text="💾 Backup Users", callback_data="adm_backup")
         kb.button(text="🔄 Restore Users", callback_data="adm_restore")
+        kb.button(text="👑 Manage Admins", callback_data="adm_admins")
         kb.button(text="💳 Payments", callback_data="adm_payments")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
@@ -84,6 +89,73 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         settings.update_one({"_id": "maintenance"}, {"$set": {"enabled": new_value}}, upsert=True)
         await cq.message.edit_reply_markup(reply_markup=menu())
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
+
+    @dp.callback_query(F.data == "adm_admins")
+    async def manage_admins(cq):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        entries = list(admin_registry.find({"active": True}, {"permissions": 1}).limit(30))
+        text = "👑 <b>Manage Admins</b>\\n"
+        for entry in entries:
+            text += f"\\n<code>{entry['_id']}</code>: {escape(', '.join(entry.get('permissions', [])))}"
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Add / Update Admin", callback_data="adm_admin_add")
+        kb.button(text="➖ Remove Admin", callback_data="adm_admin_remove")
+        kb.button(text="⬅️ Back", callback_data="admin_panel")
+        kb.adjust(1)
+        await cq.message.edit_text(text, reply_markup=kb.as_markup())
+        await cq.answer()
+
+    @dp.callback_query(F.data.in_({"adm_admin_add", "adm_admin_remove"}))
+    async def admin_edit_start(cq, state):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        mode = "add" if cq.data == "adm_admin_add" else "remove"
+        await state.set_state(ManageAdmins.waiting)
+        await state.update_data(admin_mode=mode, admin_chat=cq.message.chat.id,
+                                admin_message=cq.message.message_id)
+        prompt = ("Send: user_id permission1,permission2\\n"
+                  "Available: stock,payments,users,stats,broadcast,settings,backup,accounts"
+                  if mode == "add" else "Send user_id to remove.")
+        await cq.message.edit_text("👑 " + prompt + "\\n/cancel to abort.")
+        await cq.answer()
+
+    @dp.message(StateFilter(ManageAdmins.waiting), Command("cancel"))
+    async def admin_edit_cancel(message, state):
+        await state.clear()
+        await message.answer("Cancelled.")
+
+    @dp.message(StateFilter(ManageAdmins.waiting))
+    async def admin_edit_save(message, state):
+        if message.from_user.id not in admin_ids:
+            await state.clear()
+            return
+        data = await state.get_data()
+        parts = (message.text or "").split()
+        if not parts or not parts[0].isascii() or not parts[0].isdecimal():
+            return await message.answer("❌ Invalid user ID.")
+        uid = int(parts[0])
+        if uid in admin_ids:
+            return await message.answer("❌ Cannot modify owner.")
+        if data["admin_mode"] == "add":
+            allowed = {"stock", "payments", "users", "stats", "broadcast", "settings", "backup", "accounts"}
+            if len(parts) != 2:
+                return await message.answer("❌ Send user_id followed by comma-separated permissions.")
+            perms = set(parts[1].split(","))
+            if not perms or not perms <= allowed:
+                return await message.answer("❌ Unknown permissions.")
+            admin_registry.update_one({"_id": uid}, {"$set": {"active": True, "permissions": sorted(perms)}}, upsert=True)
+            result = "Admin permissions updated"
+        else:
+            admin_registry.update_one({"_id": uid}, {"$set": {"active": False}})
+            result = "Admin removed"
+        await state.clear()
+        await bot.edit_message_text(chat_id=data["admin_chat"], message_id=data["admin_message"],
+                                    text="✅ " + result, reply_markup=menu())
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
     @dp.callback_query(F.data == "adm_stats")
     async def admin_statistics(cq):
