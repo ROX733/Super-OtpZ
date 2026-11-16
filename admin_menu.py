@@ -412,7 +412,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await message.answer("Enter a name up to 60 characters.")
         await state.update_data(pay_name=name)
         await state.set_state(PaymentMethodState.qr)
-        await message.answer("📸 Send QR image, or type skip.")
+        data = await state.get_data()
+        await bot.edit_message_text(chat_id=data["pay_chat"], message_id=data["pay_message"],
+                                    text="📸 Send QR image, or type skip.")
 
     @dp.message(StateFilter(PaymentMethodState.qr))
     async def payment_qr(message, state):
@@ -427,7 +429,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await message.answer("Send a photo or type skip.")
         await state.update_data(pay_qr=qr)
         await state.set_state(PaymentMethodState.caption)
-        await message.answer("📝 Send payment instructions / UPI ID (max 500 characters).")
+        data = await state.get_data()
+        await bot.edit_message_text(chat_id=data["pay_chat"], message_id=data["pay_message"],
+                                    text="📝 Send payment instructions / UPI ID (max 500 characters).")
 
     @dp.message(StateFilter(PaymentMethodState.caption))
     async def payment_caption(message, state):
