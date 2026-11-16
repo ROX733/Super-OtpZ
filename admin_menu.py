@@ -7,8 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 ACTIONS = [
     ("💰 Set Sell Prices", "setprices"),
-    ("💳 Add Balance", "addbalance"),
-    ("➖ Deduct Balance", "deductbalance"),
+    ("💳 Change Balance", "changebalance"),
     ("➕ Add Number", "add"),
     ("➖ Remove Number", "remove"),
     ("🌍 Add Country", "addcountry"),
@@ -18,8 +17,7 @@ ACTIONS = [
 ]
 
 class AdminBalance(StatesGroup):
-    waiting_user = State()
-    waiting_amount = State()
+    waiting_change = State()
 
 class AdminBroadcast(StatesGroup):
     waiting_message = State()
@@ -55,11 +53,10 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         command = cq.data.partition(":")[2]
-        if command in {"addbalance", "deductbalance"}:
+        if command == "changebalance":
             await state.clear()
-            await state.update_data(balance_operation=command)
-            await state.set_state(AdminBalance.waiting_user)
-            await cq.message.answer("💳 Send the Telegram numeric User ID. /cancel to stop.")
+            await state.set_state(AdminBalance.waiting_change)
+            await cq.message.answer("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
             await cq.message.answer("📢 Send the message to broadcast. /cancel to stop.")
@@ -88,60 +85,54 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await message.answer("📢 Broadcasting...")
         await handlers["broadcast_panel"](message)
 
-    @dp.message(StateFilter(AdminBalance.waiting_user), Command("cancel"))
-    @dp.message(StateFilter(AdminBalance.waiting_amount), Command("cancel"))
+    @dp.message(StateFilter(AdminBalance.waiting_change), Command("cancel"))
     async def cancel_balance(message: Message, state):
         await state.clear()
-        await message.answer("❌ Add Balance cancelled.")
+        await message.answer("❌ Change Balance cancelled.")
 
-    @dp.message(StateFilter(AdminBalance.waiting_user))
-    async def balance_user(message: Message, state):
+    @dp.message(StateFilter(AdminBalance.waiting_change))
+    async def change_balance(message: Message, state):
         if not is_admin(message.from_user.id):
             await state.clear()
             return await message.answer("❌ Not authorized.")
-        value = (message.text or "").strip()
-        if not value.isdecimal() or not (0 < int(value) < 10**16):
-            return await message.answer("❌ Enter a valid numeric Telegram User ID.")
-        await state.update_data(balance_target=int(value))
-        await state.set_state(AdminBalance.waiting_amount)
-        operation = (await state.get_data()).get("balance_operation")
-        await message.answer(f"💰 Enter amount to {'DEDUCT' if operation == 'deductbalance' else 'ADD'} in INR (example: 100). /cancel to stop.")
 
-    @dp.message(StateFilter(AdminBalance.waiting_amount))
-    async def balance_amount(message: Message, state):
-        if not is_admin(message.from_user.id):
-            await state.clear()
-            return await message.answer("❌ Not authorized.")
         from decimal import Decimal, InvalidOperation
         from pymongo import ReturnDocument
-        raw = (message.text or "").strip()
+
+        parts = (message.text or "").strip().split()
+        if len(parts) not in (2, 3) or (len(parts) == 3 and parts[2] != "-"):
+            return await message.answer("❌ Format: <code>1234567890 10 -</code> (add) or <code>1234567890 -10</code> (deduct)", parse_mode="HTML")
+        if not parts[0].isascii() or not parts[0].isdecimal() or not (0 < int(parts[0]) < 10**16):
+            return await message.answer("❌ Invalid Telegram User ID.")
         try:
-            amount = Decimal(raw)
-            if not amount.is_finite() or amount <= 0 or amount > 100000:
-                raise InvalidOperation()
-            if amount.as_tuple().exponent < -2:
+            amount = Decimal(parts[1])
+            if (not amount.is_finite() or amount == 0 or abs(amount) > 100000
+                    or amount.as_tuple().exponent < -2 or (len(parts) == 3 and amount < 0)):
                 raise InvalidOperation()
         except (InvalidOperation, ValueError):
-            return await message.answer("❌ Enter a positive amount up to ₹100000, max 2 decimal places.")
-        data = await state.get_data()
-        target = data["balance_target"]
-        users_col = handlers["users_col"]
-        # Only existing users can be credited, avoiding accidental new accounts.
-        deduct = data.get("balance_operation") == "deductbalance"
-        condition = {"_id": target, "balance": {"$gte": float(amount)}} if deduct else {"_id": target}
-        updated = users_col.find_one_and_update(
-            condition, {"$inc": {"balance": -float(amount) if deduct else float(amount)}},
+            return await message.answer("❌ Invalid amount. Use up to ₹100000 and max 2 decimal places.")
+
+        target = int(parts[0])
+        deduct = amount < 0
+        # MongoDB $inc is atomic. Deduction cannot push a wallet below zero.
+        condition = {"_id": target}
+        if deduct:
+            condition["balance"] = {"$gte": float(-amount)}
+        updated = handlers["users_col"].find_one_and_update(
+            condition, {"$inc": {"balance": float(amount)}},
             return_document=ReturnDocument.AFTER
         )
         if not updated:
-            return await message.answer("❌ User not found or insufficient balance for deduction. Check User ID/amount or /cancel.")
+            return await message.answer("❌ User not found or insufficient balance.")
         await state.clear()
+        action = "Deducted" if deduct else "Added"
         await message.answer(
-            f"✅ Balance {'Deducted' if deduct else 'Added'}!\\n🆔 User ID: <code>{target}</code>\\n"
-            f"{'➖ Deducted' if deduct else '➕ Added'}: ₹{amount:.2f}\\n💰 New Balance: ₹{updated.get('balance', 0):.2f}",
+            f"✅ Balance {action}!\\n🆔 User ID: <code>{target}</code>\\n"
+            f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\\n"
+            f"💰 New Balance: ₹{updated.get('balance', 0):.2f}",
             parse_mode="HTML"
         )
         try:
-            await bot.send_message(target, f"💰 Your wallet has been {'debited' if deduct else 'credited'} ₹{amount:.2f} by admin.")
+            await bot.send_message(target, f"💰 Admin {action.lower()} ₹{abs(amount):.2f} {'from' if deduct else 'to'} your wallet.")
         except Exception:
             pass
