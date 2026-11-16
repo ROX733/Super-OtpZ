@@ -148,7 +148,6 @@ def register_gateway(dp, bot, db, admin_ids):
             {"_id": order_id, "status": "pending"},
             {"$set": {"status": "expired", "expired_at": datetime.now(timezone.utc)}},
         )
-        await cq.answer()
         try:
             await cq.message.delete()
         except Exception:
@@ -157,14 +156,15 @@ def register_gateway(dp, bot, db, admin_ids):
 
     @dp.callback_query(F.data.startswith("gw_check:"))
     async def verify_recharge(cq):
+        await cq.answer()
         order_id = cq.data.partition(":")[2]
         order = payments.find_one({"_id": order_id, "user_id": cq.from_user.id})
         if not order:
-            return await cq.answer("Order not found", show_alert=True)
+            return await cq.message.answer("Order not found.")
         if order.get("status") == "paid":
-            return await cq.answer("Payment Received", show_alert=True)
+            return await cq.message.answer("✅ Payment Received")
         if order.get("status") == "expired":
-            return await cq.answer("QR Expired", show_alert=True)
+            return await cq.message.answer(f"❌ QR Expired\nOrder ID: <code>{order_id}</code>")
         created_at = order.get("created_at")
         if created_at is not None and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
@@ -172,31 +172,32 @@ def register_gateway(dp, bot, db, admin_ids):
         try:
             token = get_token()
             if not token:
-                return await cq.answer("Gateway unavailable; contact support", show_alert=True)
+                return await cq.message.answer("Gateway unavailable; contact support.")
             result = await request_api("/fam_verify", {"api_key": token, "order_id": order_id})
             if result.get("status") != "success" or result.get("order_id", order_id) != order_id:
                 if expired:
                     return await expire_order(cq, order_id)
-                return await cq.answer("Payment Not Received Yet", show_alert=True)
+                return await cq.message.answer("⏳ Payment Not Received Yet")
             # A previously verified order is valid only because it is our stored order,
             # and its gateway verification was already recorded by the gateway.
             detail = result.get("data") or {}
             if detail:
                 paid_amount = detail.get("amount")
                 if paid_amount is not None and Decimal(str(paid_amount)) != Decimal(order["amount"]):
-                    return await cq.answer("Amount mismatch. Contact support.", show_alert=True)
+                    return await cq.message.answer("Amount mismatch. Contact support.")
             amount = float(Decimal(order["amount"]))
             # Atomic user update prevents double credits even with concurrent checks/retries.
             updated = users.update_one({"_id": order["user_id"], "credited_gateway_orders": {"$ne": order_id}},
                 {"$inc": {"balance": amount}, "$addToSet": {"credited_gateway_orders": order_id}})
             if updated.modified_count:
                 payments.update_one({"_id": order_id}, {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}})
-            await cq.answer()
             try:
                 await cq.message.delete()
             except Exception:
                 # A deletion failure must not undo a successfully credited payment.
                 pass
             await cq.message.answer(f"✅ Payment Received\n₹{amount:.2f} added to your balance.")
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            await cq.message.answer("⏳ Gateway slow. Please try Check Payment again shortly.")
         except Exception:
-            await cq.answer("Verification unavailable. Try again later.", show_alert=True)
+            await cq.message.answer("Verification unavailable. Try again later.")
