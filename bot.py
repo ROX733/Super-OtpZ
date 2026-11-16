@@ -99,7 +99,7 @@ class AdminActionMiddleware(BaseMiddleware):
     def permission_for(self, action):
         if action in ("admin_panel",):
             return None
-        if action.startswith(("stk:", "admin_stock_info")):
+        if action.startswith(("stk:", "admin_stock_info", "adm_single_price", "admin_do:setprices")):
             return "stock"
         if action.startswith(("adm_pay", "gw_")):
             return "payments"
@@ -113,7 +113,7 @@ class AdminActionMiddleware(BaseMiddleware):
             return "users"
         if action.startswith(("admin_do:broadcast",)):
             return "broadcast"
-        if action.startswith(("admin_do:add", "admin_do:remove", "admin_do:setprices")):
+        if action.startswith(("admin_do:add", "admin_do:remove")):
             return "accounts"
         return "settings"
     async def __call__(self, handler, event, data):
