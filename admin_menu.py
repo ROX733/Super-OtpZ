@@ -806,7 +806,10 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                   f"Category: {escape(data['stock_category'])}\\n📅 Year: {escape(data['stock_year'])}\\n"
                   f"💰 New price: ₹{price:.2f}\\n📦 Updated accounts: {result.modified_count}"),
             reply_markup=menu(), parse_mode="HTML")
-        await message.delete()
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
     @dp.callback_query(F.data == "admin_user_lookup")
     async def user_lookup_start(cq, state):
