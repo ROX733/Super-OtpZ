@@ -101,7 +101,7 @@ class AdminActionMiddleware(BaseMiddleware):
             return None
         if action.startswith(("stk:", "admin_stock_info", "adm_single_price", "admin_do:setprices")):
             return "stock"
-        if action.startswith(("adm_pay", "gw_")):
+        if action.startswith(("adm_pay", "adm_pending", "adm_proof:", "gw_")):
             return "payments"
         if action.startswith(("mr:approve:", "mr:reject:", "mr:custom:")):
             return "payments"
