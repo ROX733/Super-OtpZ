@@ -86,12 +86,38 @@ dp.update.middleware(BanCheckMiddleware()) # <--- ADD THIS LINE
 class AdminActionMiddleware(BaseMiddleware):
     """Protect existing admin-only callback workflows, not just their menu buttons."""
     ADMIN_PREFIXES = ("add_country:", "remove_country:", "admin_do:", "gw_", "adm_", "stk:", "mr:approve:", "mr:reject:", "mr:custom:")
-    ADMIN_EXACT = {"admin_panel"}
+    ADMIN_EXACT = {"admin_panel", "admin_toggle_maintenance", "admin_stock_info", "admin_user_lookup"}
+    def permission_for(self, action):
+        if action in ("admin_panel",):
+            return None
+        if action.startswith(("stk:", "admin_stock_info")):
+            return "stock"
+        if action.startswith(("adm_pay", "gw_")):
+            return "payments"
+        if action.startswith(("mr:approve:", "mr:reject:", "mr:custom:")):
+            return "payments"
+        if action.startswith(("adm_stats",)):
+            return "stats"
+        if action.startswith(("adm_backup", "adm_restore")):
+            return "backup"
+        if action.startswith(("admin_user_lookup", "adm_config:ban", "adm_config:discount")):
+            return "users"
+        if action.startswith(("admin_do:broadcast",)):
+            return "broadcast"
+        if action.startswith(("admin_do:add", "admin_do:remove", "admin_do:setprices")):
+            return "accounts"
+        return "settings"
     async def __call__(self, handler, event, data):
         callback = data.get("event_callback_query") or getattr(event, "callback_query", None)
         if callback and callback.from_user:
             action = callback.data or ""
-            if (action in self.ADMIN_EXACT or action.startswith(self.ADMIN_PREFIXES)) and not is_admin(callback.from_user.id):
+            if (action in self.ADMIN_EXACT or action.startswith(self.ADMIN_PREFIXES)) and not (
+                is_admin(callback.from_user.id) or
+                (lambda sub: bool(sub and sub.get("active") and
+                                  (self.permission_for(action) is None or
+                                   self.permission_for(action) in sub.get("permissions", []))))(
+                    db["subadmins"].find_one({"_id": callback.from_user.id}))
+            ):
                 await callback.answer("❌ Not authorized.", show_alert=True)
                 return
         return await handler(event, data)
