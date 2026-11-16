@@ -797,7 +797,11 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             text=f"👤 <b>User Info</b>\\n🆔 ID: <code>{value}</code>\\n"
             f"Username: {escape(str(user.get('username') or 'Not set'))}\\n"
             f"💰 Balance: ₹{float(user.get('balance') or 0):.2f}\\n"
-            f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}",
+            f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}\\n"
+            f"🎁 Discount: {user.get('discount_percent', 0)}%\\n"
+            f"👥 Referred by: {user.get('referred_by', 'None')}\\n"
+            f"🧾 Purchases: {database['orders'].count_documents({'user_id': int(value), 'status': 'purchased'})}\\n"
+            f"📅 Joined: {escape(str(user.get('joined_at', user.get('created_at', 'Unknown'))))}",
             parse_mode="HTML", reply_markup=menu()
         )
 
