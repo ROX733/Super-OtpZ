@@ -55,7 +55,7 @@ USAGE = "shebroked"
 OWNER = "ROX"
 UPDATES= "shebroked"
 CHANNEL="CHANNEL"
-SALESLOG = "@Super_OtpZ"
+SALESLOG = "@SuperOtpZOfficial"
 ADMINLOGS = -1003876364672
 # ================= Ban Middleware =================
 class BanCheckMiddleware(BaseMiddleware):
