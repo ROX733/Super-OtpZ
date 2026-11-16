@@ -30,7 +30,10 @@ def register_gateway(dp, bot, db, admin_ids):
     cipher = Fernet(cipher_key.encode()) if cipher_key else None
 
     def admin(uid):
-        return uid in admin_ids
+        if uid in admin_ids:
+            return True
+        sub = db["subadmins"].find_one({"_id": uid, "active": True})
+        return bool(sub and "payments" in sub.get("permissions", []))
 
     def get_token():
         record = settings.find_one({"_id": "fampay"})
