@@ -105,7 +105,7 @@ class MaintenanceMiddleware(BaseMiddleware):
             enabled = (db["admin_settings"].find_one({"_id": "maintenance"}) or {}).get("enabled", False)
             if enabled:
                 if isinstance(event, Message):
-                    await event.answer("🔴 Bot Under Maintenance\\nPlease try again later.")
+                    await event.answer("🔴 Bot Under Maintenance\nPlease try again later.")
                 elif isinstance(event, CallbackQuery):
                     await event.answer("🔴 Bot Under Maintenance", show_alert=True)
                 return
