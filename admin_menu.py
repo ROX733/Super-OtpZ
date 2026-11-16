@@ -10,8 +10,6 @@ ACTIONS = [
     ("💳 Change Balance", "changebalance"),
     ("➕ Add Number", "add"),
     ("➖ Remove Number", "remove"),
-    ("🌍 Add Country", "addcountry"),
-    ("🗑 Remove Country", "removecountry"),
     ("🗄 Database View", "db"),
     ("📢 Broadcast", "broadcast"),
 ]
