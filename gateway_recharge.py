@@ -70,7 +70,7 @@ def register_gateway(dp, bot, db, admin_ids):
         if cipher is None:
             return await cq.answer("Set GATEWAY_ENCRYPTION_KEY on Render first", show_alert=True)
         await state.set_state(GatewayState.token)
-        await cq.message.answer("Send your FamPay API token in this private chat. It will be deleted after reading.")
+        await cq.message.edit_text("Send your FamPay API token in this private chat. It will be deleted after reading.")
         await cq.answer()
 
     @dp.message(StateFilter(GatewayState.token))
@@ -107,7 +107,7 @@ def register_gateway(dp, bot, db, admin_ids):
         if not token:
             return await cq.answer("Recharge temporarily unavailable.", show_alert=True)
         await state.set_state(GatewayState.amount)
-        await cq.message.answer("💳 Enter recharge amount in INR (₹1 to ₹100000):")
+        await cq.message.edit_text("💳 Enter recharge amount in INR (₹1 to ₹100000):")
         await cq.answer()
 
     @dp.message(StateFilter(GatewayState.amount))
