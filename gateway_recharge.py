@@ -1,7 +1,7 @@
 """FamPay recharge and admin token management. Single encrypted token, MongoDB-backed orders."""
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
@@ -143,6 +143,18 @@ def register_gateway(dp, bot, db, admin_ids):
         finally:
             await state.clear()
 
+    async def expire_order(cq, order_id):
+        payments.update_one(
+            {"_id": order_id, "status": "pending"},
+            {"$set": {"status": "expired", "expired_at": datetime.now(timezone.utc)}},
+        )
+        await cq.answer()
+        try:
+            await cq.message.delete()
+        except Exception:
+            pass
+        await cq.message.answer(f"❌ QR Expired\nOrder ID: <code>{order_id}</code>")
+
     @dp.callback_query(F.data.startswith("gw_check:"))
     async def verify_recharge(cq):
         order_id = cq.data.partition(":")[2]
@@ -151,12 +163,20 @@ def register_gateway(dp, bot, db, admin_ids):
             return await cq.answer("Order not found", show_alert=True)
         if order.get("status") == "paid":
             return await cq.answer("Payment Received", show_alert=True)
+        if order.get("status") == "expired":
+            return await cq.answer("QR Expired", show_alert=True)
+        created_at = order.get("created_at")
+        if created_at is not None and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        expired = created_at is not None and datetime.now(timezone.utc) >= created_at + timedelta(minutes=5)
         try:
             token = get_token()
             if not token:
                 return await cq.answer("Gateway unavailable; contact support", show_alert=True)
             result = await request_api("/fam_verify", {"api_key": token, "order_id": order_id})
             if result.get("status") != "success" or result.get("order_id", order_id) != order_id:
+                if expired:
+                    return await expire_order(cq, order_id)
                 return await cq.answer("Payment Not Received Yet", show_alert=True)
             # A previously verified order is valid only because it is our stored order,
             # and its gateway verification was already recorded by the gateway.
