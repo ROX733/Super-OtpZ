@@ -13,4 +13,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile all Python modules
-        run: python -m compileall -q bot.py admin_menu.py gateway_recharge.py manual_recharge.py
+        run: |
+          python -m compileall -q bot.py admin_menu.py gateway_recharge.py manual_recharge.py
+          python -m unittest discover -s tests -p "test_admin_integration.py" -v
