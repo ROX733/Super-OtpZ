@@ -159,6 +159,23 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             requests.update_one({"_id": oid, "status": "processing"},
                                 {"$set": {"status": "approved",
                                           "reviewed_at": datetime.now(timezone.utc)}})
+            # Referral commission is paid once per successful deposit, never per retry.
+            pct_record = settings.find_one({"_id": "referral"}) or {}
+            payer = users.find_one({"_id": doc["user_id"]}) or {}
+            referrer = payer.get("referred_by")
+            try:
+                pct = Decimal(str(pct_record.get("percent", 0)))
+                if not pct.is_finite() or not 0 <= pct <= 100:
+                    pct = Decimal("0")
+            except (InvalidOperation, ValueError):
+                pct = Decimal("0")
+            if isinstance(referrer, int) and referrer != doc["user_id"] and pct > 0:
+                reward = (credit * pct / 100).quantize(Decimal("0.01"))
+                if reward > 0:
+                    users.update_one(
+                        {"_id": referrer, "credited_referral_deposits": {"$ne": str(oid)}},
+                        {"$inc": {"balance": float(reward)},
+                         "$addToSet": {"credited_referral_deposits": str(oid)}})
             status = f"✅ Approved ₹{credit:.2f}"
         else:
             updated = requests.update_one({"_id": oid, "status": "pending"},
