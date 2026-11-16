@@ -5,8 +5,8 @@ UPDATES_CHANNEL = "@Super_Otpz"
 UPDATES_CHANNEL_LINK = "https://t.me/Super_Otpz"
 
 WELCOME_TEXT = (
-    "❌ 𝖸𝗈𝗎 𝗆𝗎𝗌𝗍 𝗌𝗎𝖻𝗌𝖼𝗋𝗂𝖻𝖾 𝗍𝗈 𝗍𝗁𝖾 𝗈𝖿𝖿𝗂𝖼𝗂𝖺𝗅 𝖻𝗈𝗍 𝖼𝗁𝖺𝗇𝗇𝖾𝗅 𝗍𝗈 𝗎𝗌𝖾 𝗍𝗁𝖾 𝖻𝗈𝗍...\\n\\n"
-    "<blockquote>- <b>𝖢𝗁𝖺𝗇𝗇𝖾𝗅</b> - @Super_Otpz</blockquote>\\n\\n"
+    "❌ 𝖸𝗈𝗎 𝗆𝗎𝗌𝗍 𝗌𝗎𝖻𝗌𝖼𝗋𝗂𝖻𝖾 𝗍𝗈 𝗍𝗁𝖾 𝗈𝖿𝖿𝗂𝖼𝗂𝖺𝗅 𝖻𝗈𝗍 𝖼𝗁𝖺𝗇𝗇𝖾𝗅 𝗍𝗈 𝗎𝗌𝖾 𝗍𝗁𝖾 𝖻𝗈𝗍...\n\n"
+    "<blockquote>- <b>𝖢𝗁𝖺𝗇𝗇𝖾𝗅</b> - @Super_Otpz</blockquote>\n\n"
     "<b>• Press Verify Button below to check</b>"
 )
 
