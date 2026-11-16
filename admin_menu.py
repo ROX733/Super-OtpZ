@@ -49,8 +49,45 @@ class AdminBroadcast(StatesGroup):
 
 def register_admin_panel(dp, bot, admin_ids, handlers):
     admin_registry = handlers["users_col"].database["subadmins"]
-    def is_admin(uid):
-        return uid in admin_ids or bool(admin_registry.find_one({"_id": uid, "active": True}))
+    def is_admin(uid, permission=None):
+        if uid in admin_ids:
+            return True
+        sub = admin_registry.find_one({"_id": uid, "active": True})
+        return bool(sub and (permission is None or permission in sub.get("permissions", [])))
+
+    def permission_for(action):
+        if action in ("admin_panel",):
+            return None
+        if action.startswith(("stk:", "admin_stock_info", "admin_do:setprices")):
+            return "stock"
+        if action.startswith(("adm_pay", "gw_")):
+            return "payments"
+        if action.startswith(("adm_stats", "admin_do:db")):
+            return "stats"
+        if action.startswith(("adm_backup", "adm_restore")):
+            return "backup"
+        if action.startswith(("admin_user_lookup", "adm_config:ban", "adm_config:discount", "admin_do:changebalance")):
+            return "users"
+        if action.startswith(("admin_do:broadcast",)):
+            return "broadcast"
+        if action.startswith(("admin_do:add", "admin_do:remove")):
+            return "accounts"
+        return "settings"
+
+    class AdminPermissionMiddleware:
+        async def __call__(self, handler, event, data):
+            callback = data.get("event_callback_query") or getattr(event, "callback_query", None)
+            if callback:
+                action = callback.data or ""
+                protected = (action.startswith(("adm_", "stk:", "admin_do:", "admin_stock_info",
+                    "admin_user_lookup", "admin_toggle_maintenance", "admin_panel")))
+                if protected and not is_admin(callback.from_user.id, permission_for(action)):
+                    await callback.answer("❌ Permission denied.", show_alert=True)
+                    return
+            return await handler(event, data)
+
+    from aiogram import BaseMiddleware
+    dp.update.middleware(AdminPermissionMiddleware())
 
     database = handlers["users_col"].database
     settings = database["admin_settings"]
@@ -649,7 +686,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(AdminUserLookup.waiting_id)
-        await cq.message.answer("👤 Send Telegram User ID to view wallet and account details. /cancel to stop.")
+        await state.update_data(lookup_chat=cq.message.chat.id, lookup_message=cq.message.message_id)
+        await cq.message.edit_text("👤 Send Telegram User ID to view wallet and account details. /cancel to stop.")
         await cq.answer()
 
     @dp.message(StateFilter(AdminUserLookup.waiting_id), Command("cancel"))
@@ -669,13 +707,15 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not user:
             return await message.answer("❌ User not found.")
         from html import escape
+        data = await state.get_data()
         await state.clear()
-        await message.answer(
-            f"👤 <b>User Info</b>\\n🆔 ID: <code>{value}</code>\\n"
+        await bot.edit_message_text(
+            chat_id=data["lookup_chat"], message_id=data["lookup_message"],
+            text=f"👤 <b>User Info</b>\\n🆔 ID: <code>{value}</code>\\n"
             f"Username: {escape(str(user.get('username') or 'Not set'))}\\n"
             f"💰 Balance: ₹{float(user.get('balance') or 0):.2f}\\n"
             f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}",
-            parse_mode="HTML"
+            parse_mode="HTML", reply_markup=menu()
         )
 
     @dp.message(Command("admin"))
