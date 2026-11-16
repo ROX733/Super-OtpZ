@@ -54,7 +54,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if command == "changebalance":
             await state.clear()
             await state.set_state(AdminBalance.waiting_change)
-            await cq.message.answer("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
+            await cq.message.answer("💳 Send User ID and amount in one message:\n<code>1234567890 10 -</code> = Add ₹10\n<code>1234567890 -10</code> = Deduct ₹10\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
             await cq.message.answer("📢 Send the message to broadcast. /cancel to stop.")
@@ -125,8 +125,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         action = "Deducted" if deduct else "Added"
         await message.answer(
-            f"✅ Balance {action}!\\n🆔 User ID: <code>{target}</code>\\n"
-            f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\\n"
+            f"✅ Balance {action}!\n🆔 User ID: <code>{target}</code>\n"
+            f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\n"
             f"💰 New Balance: ₹{updated.get('balance', 0):.2f}",
             parse_mode="HTML"
         )
