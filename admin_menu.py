@@ -291,7 +291,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(RestoreUsers.document))
     async def restore_document(message, state):
-        if not is_admin(message.from_user.id) or message.chat.type != "private":
+        if not is_admin(message.from_user.id, "backup") or message.chat.type != "private":
             await state.clear()
             return
         doc = message.document
@@ -354,7 +354,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(AdminConfigInput.waiting))
     async def config_save(message, state):
-        if not is_admin(message.from_user.id):
+        cfg = (await state.get_data()).get("config_action")
+        needed = "users" if cfg in ("ban", "discount") else "settings"
+        if not is_admin(message.from_user.id, needed):
             await state.clear()
             return
         data = await state.get_data()
@@ -441,7 +443,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(PaymentMethodState.name))
     async def payment_name(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "payments"):
             await state.clear()
             return
         name = (message.text or "").strip()
@@ -455,7 +457,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(PaymentMethodState.qr))
     async def payment_qr(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "payments"):
             await state.clear()
             return
         if message.photo:
@@ -472,7 +474,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(PaymentMethodState.caption))
     async def payment_caption(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "payments"):
             await state.clear()
             return
         caption = (message.text or "").strip()
@@ -697,7 +699,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(AdminUserLookup.waiting_id))
     async def user_lookup(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "users"):
             await state.clear()
             return
         value = (message.text or "").strip()
@@ -766,7 +768,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(AdminBroadcast.waiting_message))
     async def send_broadcast(message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "broadcast"):
             await state.clear()
             return
         await state.clear()
@@ -780,7 +782,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.message(StateFilter(AdminBalance.waiting_change))
     async def change_balance(message: Message, state):
-        if not is_admin(message.from_user.id):
+        if not is_admin(message.from_user.id, "users"):
             await state.clear()
             return await message.answer("❌ Not authorized.")
 
