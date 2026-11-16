@@ -18,6 +18,9 @@ ACTIONS = [
     ("📢 Broadcast", "broadcast"),
 ]
 
+class RestoreUsers(StatesGroup):
+    document = State()
+
 class AdminConfigInput(StatesGroup):
     waiting = State()
 
@@ -66,6 +69,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="🚫 Ban / Unban", callback_data="adm_config:ban")
         kb.button(text="📈 Sales Statistics", callback_data="adm_stats")
         kb.button(text="💾 Backup Users", callback_data="adm_backup")
+        kb.button(text="🔄 Restore Users", callback_data="adm_restore")
         kb.button(text="💳 Payments", callback_data="adm_payments")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
@@ -105,6 +109,59 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await bot.send_document(cq.from_user.id, BufferedInputFile(payload, filename="users_backup.json"),
                                 caption="🔒 Private user backup. Keep this file secure.")
         await cq.answer()
+
+    @dp.callback_query(F.data == "adm_restore")
+    async def restore_start(cq, state):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        await state.set_state(RestoreUsers.document)
+        await state.update_data(restore_chat=cq.message.chat.id, restore_message=cq.message.message_id)
+        await cq.message.edit_text("🔄 <b>Restore Users</b>\\nUpload the users_backup.json file.\\nExisting users will be updated and missing users created.\\n/cancel to abort.")
+        await cq.answer()
+
+    @dp.message(StateFilter(RestoreUsers.document), Command("cancel"))
+    async def restore_cancel(message, state):
+        await state.clear()
+        await message.answer("Restore cancelled.")
+
+    @dp.message(StateFilter(RestoreUsers.document))
+    async def restore_document(message, state):
+        if not is_admin(message.from_user.id) or message.chat.type != "private":
+            await state.clear()
+            return
+        doc = message.document
+        if not doc or not doc.file_name.endswith(".json") or doc.file_size > 5_000_000:
+            return await message.answer("❌ Upload a JSON backup under 5 MB.")
+        from io import BytesIO
+        from bson import json_util
+        from pymongo import UpdateOne
+        stream = BytesIO()
+        await bot.download(doc, destination=stream)
+        try:
+            entries = json_util.loads(stream.getvalue().decode("utf-8"))
+            if not isinstance(entries, list) or len(entries) > 100000:
+                raise ValueError()
+            operations = []
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("_id"), int):
+                    raise ValueError()
+                # Never restore payment-credit markers from an external file:
+                # those are ledger invariants that must remain monotonic.
+                clean = {k: v for k, v in entry.items()
+                         if k not in ("_id", "credited_manual_deposits", "credited_gateway_orders")}
+                operations.append(UpdateOne({"_id": entry["_id"]}, {"$set": clean}, upsert=True))
+        except (ValueError, UnicodeError, TypeError, KeyError):
+            return await message.answer("❌ Invalid backup format. Nothing restored.")
+        if operations:
+            handlers["users_col"].bulk_write(operations, ordered=False)
+        data = await state.get_data()
+        await state.clear()
+        await bot.edit_message_text(chat_id=data["restore_chat"], message_id=data["restore_message"],
+                                    text=f"✅ Restored {len(operations)} user records.", reply_markup=menu())
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
     @dp.callback_query(F.data.startswith("adm_config:"))
     async def config_start(cq, state):
