@@ -2839,6 +2839,7 @@ register_admin_panel(dp, bot, ADMIN_IDS, {
     "removecountry": cmd_remove_country,
     "db": cmd_db,
     "broadcast_panel": panel_broadcast,
+    "users_col": users_col,
 })
 register_gateway(dp, bot, db, ADMIN_IDS)
 
