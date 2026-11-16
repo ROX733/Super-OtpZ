@@ -50,7 +50,7 @@ withdrawals_col = db["withdrawals"]
 #--------- Config : don't use @
 BOTUSER = "AccBotHost_Bot"
 SUPPORT = "ROX"
-LOGS = "shebroked"
+LOGS = "Super_OtpZ"
 USAGE = "shebroked"
 OWNER = "ROX"
 UPDATES= "shebroked"
