@@ -191,6 +191,23 @@ def register_gateway(dp, bot, db, admin_ids):
                 {"$inc": {"balance": amount}, "$addToSet": {"credited_gateway_orders": order_id}})
             if updated.modified_count:
                 payments.update_one({"_id": order_id}, {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}})
+            if updated.modified_count:
+                config = (db["admin_settings"].find_one({"_id": "referral"}) or {})
+                payer = users.find_one({"_id": order["user_id"]}) or {}
+                referrer = payer.get("referred_by")
+                try:
+                    pct = Decimal(str(config.get("percent", 0)))
+                    if not pct.is_finite() or not 0 <= pct <= 100:
+                        pct = Decimal("0")
+                except (InvalidOperation, ValueError):
+                    pct = Decimal("0")
+                if isinstance(referrer, int) and referrer != order["user_id"] and pct > 0:
+                    reward = (Decimal(order["amount"]) * pct / 100).quantize(Decimal("0.01"))
+                    if reward > 0:
+                        users.update_one(
+                            {"_id": referrer, "credited_referral_gateway_orders": {"$ne": order_id}},
+                            {"$inc": {"balance": float(reward)},
+                             "$addToSet": {"credited_referral_gateway_orders": order_id}})
             try:
                 await cq.message.delete()
             except Exception:
