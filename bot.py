@@ -120,7 +120,7 @@ class AdminActionMiddleware(BaseMiddleware):
         callback = data.get("event_callback_query") or getattr(event, "callback_query", None)
         if callback and callback.from_user:
             action = callback.data or ""
-            if action.startswith("gw_check:"):
+            if action == "gw_recharge" or action.startswith("gw_check:"):
                 return await handler(event, data)
             if (action in self.ADMIN_EXACT or action.startswith(self.ADMIN_PREFIXES)) and not (
                 is_admin(callback.from_user.id) or
