@@ -880,7 +880,7 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
     user_id = cq.from_user.id
     country = countries_col.find_one({"name": country_name})
     if not country:
-        return await cq.message.answer("Country unavailable.")
+        country = {}
     price = selection["price"]
     from pymongo import ReturnDocument
     # Reserve one matching account only once, preventing duplicate purchases.
