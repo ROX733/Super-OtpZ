@@ -1087,8 +1087,10 @@ async def add_account_price(msg: Message, state: FSMContext):
         "year": data.get("year"), "status": data["status"],
         "category": data["category"], "price": price
     }}, upsert=True)
-    if not old:
-        countries_col.update_one({"name": country}, {"$inc": {"stock": 1}, "$setOnInsert": {"price": price}}, upsert=True)
+    # Always create the country even when updating an existing unsold number.
+    # Derive stock from actual available accounts to repair legacy mismatches.
+    available_stock = numbers_col.count_documents({"country": country, "used": False})
+    countries_col.update_one({"name": country}, {"$set": {"stock": available_stock}, "$setOnInsert": {"price": price}}, upsert=True)
     await msg.answer(
         "✅ ✅ ACCOUNT ADDED!\n\n"
         f"📱 <code>{html.escape(str(phone))}</code>\n"
