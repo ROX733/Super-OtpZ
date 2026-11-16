@@ -2928,12 +2928,29 @@ async def cmd_broadcast(msg: Message):
 
 # ===== Register External Handlers =====
 async def panel_broadcast(message):
-    if not is_admin(message.from_user.id):
+    if not (is_admin(message.from_user.id) or
+            (lambda a: bool(a and a.get("active") and "broadcast" in a.get("permissions", [])))(
+                db["subadmins"].find_one({"_id": message.from_user.id}))):
         return
+    # Text, photo and video are copied without losing formatting/media.
+    # Optional URL buttons: append a line "BUTTON: Label | https://example.com".
+    import re
+    content = message.text or message.caption or ""
+    buttons = []
+    for label, url in re.findall(r"(?m)^BUTTON:\\s*([^|\\n]{1,40})\\s*\\|\\s*(https?://[^\\s]+)\\s*$", content):
+        buttons.append((label.strip(), url.strip()))
+    markup = None
+    if buttons:
+        kb = InlineKeyboardBuilder()
+        for label, url in buttons[:8]:
+            kb.button(text=label, url=url)
+        kb.adjust(1)
+        markup = kb.as_markup()
     sent = failed = 0
     for user in users_col.find({}, {"_id": 1}):
         try:
-            await bot.copy_message(user["_id"], message.chat.id, message.message_id)
+            await bot.copy_message(user["_id"], message.chat.id, message.message_id,
+                                   reply_markup=markup)
             sent += 1
         except Exception:
             failed += 1
