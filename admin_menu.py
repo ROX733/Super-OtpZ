@@ -121,6 +121,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="👑 Manage Admins", callback_data="adm_admins")
         kb.button(text="📝 Set Bio", callback_data="adm_setbio")
         kb.button(text="💳 Payments", callback_data="adm_payments")
+        kb.button(text="🧾 Pending Deposits", callback_data="adm_pending")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
         kb.adjust(1, 2, 2, 2, 2, 1, 1)
@@ -415,6 +416,49 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     def manual_enabled():
         return (settings.find_one({"_id": "manual_payments"}) or {}).get("enabled", False)
+
+    @dp.callback_query(F.data == "adm_pending")
+    async def pending_deposits(cq):
+        if not is_admin(cq.from_user.id, "payments"):
+            return await cq.answer("Not authorized", show_alert=True)
+        pending = list(database["manual_deposits"].find(
+            {"status": {"$in": ["pending", "processing"]}}).sort("created_at", -1).limit(20))
+        lines = ["🧾 <b>Pending Manual Deposits</b>"]
+        kb = InlineKeyboardBuilder()
+        for entry in pending:
+            lines.append(f"\\n<code>{entry['_id']}</code> • User <code>{entry['user_id']}</code> • ₹{entry['amount']} • {escape(entry.get('status', 'pending'))}")
+            if entry.get("status") == "pending":
+                kb.button(text=f"📸 Proof {str(entry['_id'])[-6:]}",
+                          callback_data=f"adm_proof:{entry['_id']}")
+        kb.button(text="⬅️ Back", callback_data="admin_panel")
+        kb.adjust(1)
+        await cq.message.edit_text("\\n".join(lines) if pending else "🧾 No pending deposits.",
+                                   reply_markup=kb.as_markup())
+        await cq.answer()
+
+    @dp.callback_query(F.data.startswith("adm_proof:"))
+    async def pending_proof(cq):
+        if not is_admin(cq.from_user.id, "payments"):
+            return await cq.answer("Not authorized", show_alert=True)
+        from bson import ObjectId
+        try:
+            entry = database["manual_deposits"].find_one({"_id": ObjectId(cq.data.split(":")[1])})
+        except Exception:
+            entry = None
+        if not entry:
+            return await cq.answer("Request missing", show_alert=True)
+        kb = InlineKeyboardBuilder()
+        if entry.get("status") == "pending":
+            kb.button(text="✅ Approve", callback_data=f"mr:approve:{entry['_id']}")
+            kb.button(text="❌ Reject", callback_data=f"mr:reject:{entry['_id']}")
+            kb.button(text="📝 Custom Amount", callback_data=f"mr:custom:{entry['_id']}")
+        kb.button(text="⬅️ Pending", callback_data="adm_pending")
+        kb.adjust(1)
+        await cq.message.delete()
+        await bot.send_photo(cq.message.chat.id, entry["proof"],
+            caption=f"🧾 Request <code>{entry['_id']}</code>\\nUser: <code>{entry['user_id']}</code>\\nAmount: ₹{entry['amount']}",
+            reply_markup=kb.as_markup())
+        await cq.answer()
 
     @dp.callback_query(F.data == "adm_payments")
     async def payment_panel(cq):
