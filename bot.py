@@ -267,16 +267,29 @@ async def otp_listener(number_doc, user_id, message_id):
                 reply_markup=buy_button
             )
 
-            admin_message = (
-                f"<pre>📢 New Purchase Alert</pre>\n\n"
-                f"<b>• Application:</b> Telegram\n"
-                f"<b>• Country:</b> {country}\n"
-                f"<b>• Number:</b> {number}\n"
-                f"<b>• OTP:</b> <code>{code}</code>\n"
-                f"➖ <b>Password:</b> <span class='tg-spoiler'>{password_text}</span> 🔐\n\n"
-                f"<b>👤 User:</b> @{buyer_name} (<code>{user_id}</code>)\n"
-                f"<b>💰 Balance:</b> ₹{balance}"
+            # Detailed purchase notification for the private admin alert chat.
+            admin_username = str(buyer_name)
+            if admin_username.startswith("@"):
+                admin_username = admin_username[1:]
+            admin_username = (
+                "@" + html.escape(admin_username)
+                if user.get("username") else "Not available"
             )
+            admin_price = float(price)
+            admin_time = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+            admin_message = (
+                "🛒 <b>NEW PURCHASE SUCCESSFUL</b>\n\n"
+                f"<b>🆔 User ID:</b> <code>{user_id}</code>\n"
+                f"<b>👤 Username:</b> {admin_username}\n"
+                f"<b>🌎 Country:</b> {html.escape(str(country))}\n"
+                f"<b>💰 Price:</b> ₹{admin_price:g}\n"
+                f"<b>💳 Total Paid:</b> ₹{admin_price:g}\n"
+                f"<b>📅 Year:</b> {admin_time.year}\n"
+                "<b>📦 Quantity:</b> 1\n"
+                f"<b>📞 Number:</b> {html.escape(str(number))}\n"
+                f"<b>⏰ Time:</b> {admin_time:%Y-%m-%d %H:%M:%S}"
+            )
+
             userbutton = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
