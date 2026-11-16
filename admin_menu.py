@@ -1,6 +1,8 @@
 """Telegram admin menu; reuses existing command handlers."""
 from aiogram import F
-from aiogram.types import Message
+from aiogram.types import Message, BufferedInputFile
+import json
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
 from aiogram.filters import Command, StateFilter
@@ -15,6 +17,9 @@ ACTIONS = [
     ("🗄 Database View", "db"),
     ("📢 Broadcast", "broadcast"),
 ]
+
+class AdminConfigInput(StatesGroup):
+    waiting = State()
 
 class PaymentMethodState(StatesGroup):
     name = State()
@@ -55,6 +60,12 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="📢 Broadcast", callback_data="admin_do:broadcast")
         kb.button(text="👤 User Info", callback_data="admin_user_lookup")
         kb.button(text="💰 Change Balance", callback_data="admin_do:changebalance")
+        kb.button(text="🎁 Discount", callback_data="adm_config:discount")
+        kb.button(text="👥 Ref %", callback_data="adm_config:ref")
+        kb.button(text="🔗 Support URL", callback_data="adm_config:support")
+        kb.button(text="🚫 Ban / Unban", callback_data="adm_config:ban")
+        kb.button(text="📈 Sales Statistics", callback_data="adm_stats")
+        kb.button(text="💾 Backup Users", callback_data="adm_backup")
         kb.button(text="💳 Payments", callback_data="adm_payments")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
@@ -69,6 +80,99 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         settings.update_one({"_id": "maintenance"}, {"$set": {"enabled": new_value}}, upsert=True)
         await cq.message.edit_reply_markup(reply_markup=menu())
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
+
+    @dp.callback_query(F.data == "adm_stats")
+    async def admin_statistics(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        users = handlers["users_col"]
+        orders = database["orders"]
+        await cq.message.edit_text(
+            f"📈 <b>Bot Statistics</b>\\n👥 Users: {users.count_documents({})}\\n"
+            f"📦 Available stock: {numbers.count_documents({'used': False})}\\n"
+            f"🧾 Purchased orders: {orders.count_documents({'status': 'purchased'})}",
+            reply_markup=menu())
+        await cq.answer()
+
+    @dp.callback_query(F.data == "adm_backup")
+    async def admin_backup(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        users = list(handlers["users_col"].find({}))
+        from bson import json_util
+        payload = json_util.dumps(users, ensure_ascii=False, indent=2).encode("utf-8")
+        await cq.message.edit_text(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu())
+        await bot.send_document(cq.from_user.id, BufferedInputFile(payload, filename="users_backup.json"),
+                                caption="🔒 Private user backup. Keep this file secure.")
+        await cq.answer()
+
+    @dp.callback_query(F.data.startswith("adm_config:"))
+    async def config_start(cq, state):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        action = cq.data.partition(":")[2]
+        prompts = {
+            "discount": "🎁 Send: user_id discount_percent (0-100)",
+            "ref": "👥 Send global referral percentage (0-100)",
+            "support": "🔗 Send https://t.me/username or @username",
+            "ban": "🚫 Send: user_id ban OR user_id unban"
+        }
+        if action not in prompts:
+            return await cq.answer("Invalid action", show_alert=True)
+        await state.set_state(AdminConfigInput.waiting)
+        await state.update_data(config_action=action, config_chat=cq.message.chat.id,
+                                config_message=cq.message.message_id)
+        await cq.message.edit_text(prompts[action] + "\\n/cancel to abort.")
+        await cq.answer()
+
+    @dp.message(StateFilter(AdminConfigInput.waiting), Command("cancel"))
+    async def config_cancel(message, state):
+        await state.clear()
+        await message.answer("Cancelled. Open /admin to continue.")
+
+    @dp.message(StateFilter(AdminConfigInput.waiting))
+    async def config_save(message, state):
+        if not is_admin(message.from_user.id):
+            await state.clear()
+            return
+        data = await state.get_data()
+        action = data["config_action"]
+        value = (message.text or "").strip()
+        try:
+            if action in ("discount", "ban"):
+                uid, parameter = value.split()
+                if not uid.isascii() or not uid.isdecimal() or not 0 < int(uid) < 10**16:
+                    raise ValueError()
+                if action == "discount":
+                    pct = Decimal(parameter)
+                    if not pct.is_finite() or not 0 <= pct <= 100 or pct.as_tuple().exponent < -2:
+                        raise ValueError()
+                    result = handlers["users_col"].update_one({"_id": int(uid)}, {"$set": {"discount_percent": float(pct)}})
+                else:
+                    if parameter not in ("ban", "unban"):
+                        raise ValueError()
+                    result = handlers["users_col"].update_one({"_id": int(uid)}, {"$set": {"banned": parameter == "ban"}})
+                if not result.matched_count:
+                    return await message.answer("❌ User not found.")
+            elif action == "ref":
+                pct = Decimal(value)
+                if not pct.is_finite() or not 0 <= pct <= 100 or pct.as_tuple().exponent < -2:
+                    raise ValueError()
+                settings.update_one({"_id": "referral"}, {"$set": {"percent": float(pct)}}, upsert=True)
+            else:
+                import re
+                if not re.fullmatch(r"(?:https://t\\.me/|@)[A-Za-z0-9_]{5,32}", value):
+                    raise ValueError()
+                settings.update_one({"_id": "support"}, {"$set": {"url": value}}, upsert=True)
+        except (ValueError, InvalidOperation):
+            return await message.answer("❌ Invalid input. Follow the displayed format.")
+        await state.clear()
+        await bot.edit_message_text(chat_id=data["config_chat"], message_id=data["config_message"],
+                                    text=f"✅ {escape(action.title())} setting saved.", reply_markup=menu())
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
     def payment_menu():
         kb = InlineKeyboardBuilder()
