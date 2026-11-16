@@ -1,6 +1,8 @@
 """Telegram admin menu; reuses existing command handlers."""
 from aiogram import F
 from aiogram.types import Message
+from decimal import Decimal, InvalidOperation
+from html import escape
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -13,6 +15,9 @@ ACTIONS = [
     ("🗄 Database View", "db"),
     ("📢 Broadcast", "broadcast"),
 ]
+
+class StockPrice(StatesGroup):
+    waiting_price = State()
 
 class AdminUserLookup(StatesGroup):
     waiting_id = State()
@@ -27,7 +32,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     def is_admin(uid):
         return uid in admin_ids
 
-    settings = handlers["users_col"].database["admin_settings"]
+    database = handlers["users_col"].database
+    settings = database["admin_settings"]
+    numbers = database["numbers"]
 
     def maintenance_enabled():
         return bool((settings.find_one({"_id": "maintenance"}) or {}).get("enabled", False))
@@ -57,12 +64,147 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await cq.message.edit_reply_markup(reply_markup=menu())
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
 
+    def stock_countries():
+        return sorted(numbers.distinct("country", {"used": False, "country": {"$type": "string"}}))
+
+    def stock_categories(country):
+        return sorted({str(n.get("category") or "Good") for n in numbers.find(
+            {"country": country, "used": False}, {"category": 1})})
+
+    def stock_years(country, category):
+        return sorted({str(n.get("year") or "Unknown") for n in numbers.find(
+            {"country": country, "used": False}, {"year": 1, "category": 1})
+            if str(n.get("category") or "Good") == category}, reverse=True)
+
+    def stock_filter(country, category=None, year=None):
+        query = {"country": country, "used": False}
+        if category is not None:
+            query["$or"] = [{"category": category}]
+            if category == "Good":
+                query["$or"].append({"category": {"$exists": False}})
+                query["$or"].append({"category": None})
+        if year is not None:
+            if year == "Unknown":
+                query["$and"] = [{"$or": [{"year": {"$exists": False}}, {"year": None}, {"year": ""}]}]
+            else:
+                query["year"] = {"$in": [year, int(year)]} if year.isdecimal() else year
+        return query
+
+    async def render_stock(cq, level=0, ci=None, ki=None, yi=None):
+        countries = stock_countries()
+        kb = InlineKeyboardBuilder()
+        if level == 0:
+            if not countries:
+                text = "📊 <b>Manage Stock</b>\\nNo available accounts."
+            else:
+                text = "📊 <b>Manage Stock</b>\\nSelect a country:"
+                for i, country in enumerate(countries):
+                    count = numbers.count_documents({"country": country, "used": False})
+                    kb.button(text=f"🌍 {country} ({count})", callback_data=f"stk:c:{i}")
+        elif ci is None or ci >= len(countries):
+            return await render_stock(cq)
+        else:
+            country = countries[ci]
+            cats = stock_categories(country)
+            if level == 1:
+                text = f"🌍 <b>{escape(country)}</b>\\nSelect a category:"
+                for i, cat in enumerate(cats):
+                    count = numbers.count_documents(stock_filter(country, cat))
+                    kb.button(text=f"{'🟢 HEALTHY' if cat == 'Good' else cat} ({count})", callback_data=f"stk:k:{ci}:{i}")
+            elif ki is None or ki >= len(cats):
+                return await render_stock(cq, 1, ci)
+            else:
+                cat = cats[ki]
+                years = stock_years(country, cat)
+                if level == 2:
+                    text = f"🌍 {escape(country)}\\nCategory: <b>{escape(cat)}</b>\\nSelect a year:"
+                    for i, year in enumerate(years):
+                        count = numbers.count_documents(stock_filter(country, cat, year))
+                        kb.button(text=f"📅 {year} ({count})", callback_data=f"stk:y:{ci}:{ki}:{i}")
+                elif yi is None or yi >= len(years):
+                    return await render_stock(cq, 2, ci, ki)
+                else:
+                    year = years[yi]
+                    docs = list(numbers.find(stock_filter(country, cat, year), {"price": 1}))
+                    prices = sorted({str(d.get("price", "Not set")) for d in docs})
+                    text = (f"📊 <b>Stock Price Editor</b>\\n🌍 {escape(country)}\\n"
+                            f"Category: {escape(cat)}\\n📅 Year: {escape(year)}\\n"
+                            f"📦 Accounts: {len(docs)}\\n💰 Current prices: {escape(', '.join(prices[:10]))}\\n\\n"
+                            "Change price for ALL available accounts in this category/year?")
+                    kb.button(text="💰 Change Price", callback_data=f"stk:p:{ci}:{ki}:{yi}")
+            kb.button(text="⬅️ Back", callback_data=("stk:home" if level == 1 else
+                      f"stk:c:{ci}" if level == 2 else f"stk:k:{ci}:{ki}"))
+        kb.button(text="🏠 Admin Panel", callback_data="admin_panel")
+        kb.adjust(1)
+        await cq.message.edit_text(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
     @dp.callback_query(F.data == "admin_stock_info")
     async def stock_info(cq):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
-        await cq.message.answer("📊 Manage Stock: detailed country/category/year price editor is being built. Existing add/remove account controls are available in this dashboard.")
+        await render_stock(cq)
         await cq.answer()
+
+    @dp.callback_query(F.data.startswith("stk:"))
+    async def stock_navigation(cq, state):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        parts = cq.data.split(":")
+        action = parts[1]
+        if action == "home":
+            await render_stock(cq)
+        elif action in {"c", "k", "y"}:
+            ci = int(parts[2])
+            ki = int(parts[3]) if len(parts) > 3 else None
+            yi = int(parts[4]) if len(parts) > 4 else None
+            await render_stock(cq, {"c": 1, "k": 2, "y": 3}[action], ci, ki, yi)
+        elif action == "p":
+            ci, ki, yi = map(int, parts[2:5])
+            countries = stock_countries()
+            if ci >= len(countries):
+                return await cq.answer("Stock changed; reopen menu", show_alert=True)
+            cats = stock_categories(countries[ci])
+            if ki >= len(cats):
+                return await cq.answer("Stock changed; reopen menu", show_alert=True)
+            years = stock_years(countries[ci], cats[ki])
+            if yi >= len(years):
+                return await cq.answer("Stock changed; reopen menu", show_alert=True)
+            await state.set_state(StockPrice.waiting_price)
+            await state.update_data(stock_country=countries[ci], stock_category=cats[ki],
+                                    stock_year=years[yi], stock_message_id=cq.message.message_id,
+                                    stock_chat_id=cq.message.chat.id)
+            await cq.message.edit_text(
+                f"💰 Enter new INR price for {escape(countries[ci])} / {escape(cats[ki])} / {escape(years[yi])}.\\n"
+                "All matching AVAILABLE accounts will be updated.\\nSend /cancel to abort.")
+        await cq.answer()
+
+    @dp.message(StateFilter(StockPrice.waiting_price), Command("cancel"))
+    async def stock_cancel(message, state):
+        await state.clear()
+        await message.answer("❌ Price edit cancelled. Open Admin Panel to continue.")
+
+    @dp.message(StateFilter(StockPrice.waiting_price))
+    async def stock_save_price(message, state):
+        if not is_admin(message.from_user.id):
+            await state.clear()
+            return
+        try:
+            price = Decimal((message.text or "").strip())
+            if not price.is_finite() or price <= 0 or price > 100000 or price.as_tuple().exponent < -2:
+                raise InvalidOperation()
+        except (InvalidOperation, ValueError):
+            return await message.answer("❌ Enter a valid INR amount (0.01 to 100000, max 2 decimals).")
+        data = await state.get_data()
+        query = stock_filter(data["stock_country"], data["stock_category"], data["stock_year"])
+        result = numbers.update_many(query, {"$set": {"price": float(price)}})
+        await state.clear()
+        await bot.edit_message_text(
+            chat_id=data["stock_chat_id"], message_id=data["stock_message_id"],
+            text=(f"✅ <b>Stock Price Updated</b>\\n🌍 {escape(data['stock_country'])}\\n"
+                  f"Category: {escape(data['stock_category'])}\\n📅 Year: {escape(data['stock_year'])}\\n"
+                  f"💰 New price: ₹{price:.2f}\\n📦 Updated accounts: {result.modified_count}"),
+            reply_markup=menu(), parse_mode="HTML")
+        await message.delete()
 
     @dp.callback_query(F.data == "admin_user_lookup")
     async def user_lookup_start(cq, state):
@@ -108,7 +250,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     async def admin_callback(cq):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
-        await cq.message.answer("🛡 <b>Admin Panel</b>", reply_markup=menu())
+        await cq.message.edit_text("🛡 <b>Advanced Admin Dashboard</b>", reply_markup=menu())
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("admin_do:"))
