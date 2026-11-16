@@ -150,14 +150,14 @@ def register_gateway(dp, bot, db, admin_ids):
         if not order:
             return await cq.answer("Order not found", show_alert=True)
         if order.get("status") == "paid":
-            return await cq.answer("Already credited", show_alert=True)
+            return await cq.answer("Payment Received", show_alert=True)
         try:
             token = get_token()
             if not token:
                 return await cq.answer("Gateway unavailable; contact support", show_alert=True)
             result = await request_api("/fam_verify", {"api_key": token, "order_id": order_id})
             if result.get("status") != "success" or result.get("order_id", order_id) != order_id:
-                return await cq.answer("Payment not confirmed yet", show_alert=True)
+                return await cq.answer("Payment Not Received Yet", show_alert=True)
             # A previously verified order is valid only because it is our stored order,
             # and its gateway verification was already recorded by the gateway.
             detail = result.get("data") or {}
@@ -171,7 +171,12 @@ def register_gateway(dp, bot, db, admin_ids):
                 {"$inc": {"balance": amount}, "$addToSet": {"credited_gateway_orders": order_id}})
             if updated.modified_count:
                 payments.update_one({"_id": order_id}, {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}})
-            await cq.answer("Payment credited successfully!", show_alert=True)
-            await cq.message.answer(f"✅ ₹{amount:.2f} added to your balance.")
+            await cq.answer()
+            try:
+                await cq.message.delete()
+            except Exception:
+                # A deletion failure must not undo a successfully credited payment.
+                pass
+            await cq.message.answer(f"✅ Payment Received\n₹{amount:.2f} added to your balance.")
         except Exception:
             await cq.answer("Verification unavailable. Try again later.", show_alert=True)
