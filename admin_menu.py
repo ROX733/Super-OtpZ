@@ -63,7 +63,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return None
         if action.startswith(("stk:", "admin_stock_info", "admin_do:setprices")):
             return "stock"
-        if action.startswith(("adm_pay", "gw_")):
+        if action.startswith(("adm_pay", "adm_pending", "adm_proof:", "gw_")):
             return "payments"
         if action.startswith(("adm_stats", "admin_do:db")):
             return "stats"
