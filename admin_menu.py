@@ -639,10 +639,10 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if command == "changebalance":
             await state.clear()
             await state.set_state(AdminBalance.waiting_change)
-            await cq.message.answer("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
+            await cq.message.edit_text("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
-            await cq.message.answer("📢 Send the message to broadcast. /cancel to stop.")
+            await cq.message.edit_text("📢 Send the message to broadcast. /cancel to stop.")
         elif command in handlers:
             # Callback messages are authored by the bot. Override the sender for
             # the existing command handler's authorization check.
