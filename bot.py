@@ -230,15 +230,23 @@ async def otp_listener(number_doc, user_id, message_id):
             else:
                 masked_number = "Hidden"
 
+            # Public alert deliberately excludes phone number, OTP and password.
+            user_id_text = str(user_id)
+            masked_user_id = (
+                user_id_text[:3] + "***" + user_id_text[-3:]
+                if len(user_id_text) > 6 else "***"
+            )
+            purchase_time = datetime.now(timezone(timedelta(hours=5, minutes=30)))
             channel_message = (
-                f"<pre><u>✅ <b>New Number Purchase Successful</b></u></pre>\n\n"
-                f"➖ <b><u>Country:</u></b> {country}\n"
-                f"➖ <b><u>Application:</u> Теlegгам 🍷</b>\n\n"
-                f"➕ <b>Number: {masked_number} 📞</b>\n"
-                f"➕ <b>OTP:</b> <span class='tg-spoiler'>{code}</span> 💬\n"
-                f"➕ <b>Server:</b> (1) 🥂\n"
-                f"➕ <b>Password:</b> <span class='tg-spoiler'>{password_text}</span> 🔐\n\n"
-                f"<b>• @{BOTUSER}|| @{CHANNEL}</b>"
+                "🛒 <b>NEW PURCHASE SUCCESSFUL</b>\n\n"
+                f"🆔 User ID: {masked_user_id}\n"
+                f"🌎 Country: {html.escape(str(country))}\n"
+                f"💰 Price: ₹{float(price):.2f}\n"
+                f"💳 Total Paid: ₹{float(price):.2f}\n"
+                f"📅 Year: {purchase_time.year}\n"
+                "📦 Quantity: 1\n"
+                f"⏰ Time: {purchase_time:%Y-%m-%d %H:%M:%S}\n\n"
+                "<i>Tʜᴀɴᴋꜱ Fᴏʀ Pᴜʀᴄʜᴀꜱᴇ Iɴ Super OtpZ BOT!</i>"
             )
 
             buy_button = InlineKeyboardMarkup(
