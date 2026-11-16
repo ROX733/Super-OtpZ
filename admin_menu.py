@@ -406,6 +406,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb = InlineKeyboardBuilder()
         kb.button(text="➕ Add Payment Method", callback_data="adm_pay_add")
         kb.button(text="🗑 Remove Payment Method", callback_data="adm_pay_remove")
+        kb.button(text="🔘 Enable / Disable Method", callback_data="adm_pay_methods")
         kb.button(text="🔄 Manual ON/OFF", callback_data="adm_pay_toggle")
         kb.button(text="⚡ Automatic UPI Gateway", callback_data="gw_settings")
         kb.button(text="⬅️ Back to Admin", callback_data="admin_panel")
@@ -498,6 +499,34 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await message.delete()
         except Exception:
             pass
+
+    @dp.callback_query(F.data == "adm_pay_methods")
+    async def payment_method_status(cq):
+        if not is_admin(cq.from_user.id, "payments"):
+            return await cq.answer("Not authorized", show_alert=True)
+        kb = InlineKeyboardBuilder()
+        for method in payment_methods.find({}).limit(50):
+            kb.button(text=("🟢 " if method.get("enabled", True) else "🔴 ") + method["name"][:35],
+                      callback_data=f"adm_pay_switch:{method['_id']}")
+        kb.button(text="⬅️ Back", callback_data="adm_payments")
+        kb.adjust(1)
+        await cq.message.edit_text("🔘 Tap a payment method to enable/disable:", reply_markup=kb.as_markup())
+        await cq.answer()
+
+    @dp.callback_query(F.data.startswith("adm_pay_switch:"))
+    async def payment_method_switch(cq):
+        if not is_admin(cq.from_user.id, "payments"):
+            return await cq.answer("Not authorized", show_alert=True)
+        from bson import ObjectId
+        try:
+            oid = ObjectId(cq.data.split(":")[2])
+        except Exception:
+            return await cq.answer("Invalid method", show_alert=True)
+        method = payment_methods.find_one({"_id": oid})
+        if not method:
+            return await cq.answer("Method missing", show_alert=True)
+        payment_methods.update_one({"_id": oid}, {"$set": {"enabled": not method.get("enabled", True)}})
+        await payment_method_status(cq)
 
     @dp.callback_query(F.data == "adm_pay_remove")
     async def payment_remove_menu(cq):
