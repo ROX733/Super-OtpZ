@@ -454,7 +454,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             kb.button(text="📝 Custom Amount", callback_data=f"mr:custom:{entry['_id']}")
         kb.button(text="⬅️ Pending", callback_data="adm_pending")
         kb.adjust(1)
-        await cq.message.delete()
+        # Proof is a separate attachment; the admin dashboard message remains intact.
         await bot.send_photo(cq.message.chat.id, entry["proof"],
             caption=f"🧾 Request <code>{entry['_id']}</code>\\nUser: <code>{entry['user_id']}</code>\\nAmount: ₹{entry['amount']}",
             reply_markup=kb.as_markup())
