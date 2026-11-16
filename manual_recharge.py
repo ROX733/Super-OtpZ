@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
 from bson import ObjectId
+from pymongo import ReturnDocument
 from aiogram import F
 from aiogram.filters import StateFilter, Command
 from aiogram.fsm.state import StatesGroup, State
@@ -132,21 +133,32 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         except Exception:
             return await cq.answer("Invalid request", show_alert=True)
         doc = requests.find_one({"_id": oid})
-        if not doc or doc.get("status") != "pending":
+        if not doc or doc.get("status") not in ("pending", "processing"):
             return await cq.answer("Already processed or missing", show_alert=True)
         if approved:
-            credit = money(amount if amount is not None else doc["amount"])
+            credit = money(amount if amount is not None else doc.get("approved_amount", doc["amount"]))
             if credit is None:
                 return await cq.answer("Invalid amount", show_alert=True)
-            # Credit marker on user is atomic and prevents double credit on retries.
+            if doc["status"] == "pending":
+                claimed = requests.find_one_and_update(
+                    {"_id": oid, "status": "pending"},
+                    {"$set": {"status": "processing", "approved_amount": str(credit),
+                              "reviewed_by": cq.from_user.id}},
+                    return_document=ReturnDocument.AFTER)
+                if not claimed:
+                    return await cq.answer("Another admin is reviewing this request", show_alert=True)
+            else:
+                credit = money(doc["approved_amount"])
+            # Idempotent wallet credit. A processing record can be retried safely.
             result = users.update_one(
                 {"_id": doc["user_id"], "credited_manual_deposits": {"$ne": str(oid)}},
                 {"$inc": {"balance": float(credit)}, "$addToSet": {"credited_manual_deposits": str(oid)}})
-            if not result.modified_count:
-                return await cq.answer("Already credited or user missing", show_alert=True)
-            requests.update_one({"_id": oid, "status": "pending"},
-                                {"$set": {"status": "approved", "approved_amount": str(credit),
-                                          "reviewed_by": cq.from_user.id, "reviewed_at": datetime.now(timezone.utc)}})
+            if not result.modified_count and not users.find_one(
+                    {"_id": doc["user_id"], "credited_manual_deposits": str(oid)}):
+                return await cq.answer("User missing; contact owner", show_alert=True)
+            requests.update_one({"_id": oid, "status": "processing"},
+                                {"$set": {"status": "approved",
+                                          "reviewed_at": datetime.now(timezone.utc)}})
             status = f"✅ Approved ₹{credit:.2f}"
         else:
             updated = requests.update_one({"_id": oid, "status": "pending"},
