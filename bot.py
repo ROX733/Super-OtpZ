@@ -51,6 +51,15 @@ withdrawals_col = db["withdrawals"]
 #--------- Config : don't use @
 BOTUSER = "AccBotHost_Bot"
 SUPPORT = "ROX"
+
+def get_support_url():
+    configured = (db["admin_settings"].find_one({"_id": "support"}) or {}).get("url", "")
+    if isinstance(configured, str):
+        if configured.startswith("https://t.me/"):
+            return configured
+        if configured.startswith("@"):
+            return "https://t.me/" + configured[1:]
+    return f"https://t.me/{SUPPORT}"
 LOGS = "Super_OtpZ"
 USAGE = "shebroked"
 OWNER = "ROX"
@@ -987,7 +996,7 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
             [
                 InlineKeyboardButton(
                     text="• Support •",                    
-                    url=f"https://t.me/{SUPPORT}"
+                    url=get_support_url()
                 )
             ]
         ]
@@ -2163,7 +2172,7 @@ async def callback_howto(cq: CallbackQuery):
     steps_text = ("📚 FᴀQ & Sᴜᴘᴘᴏʀᴛ 😊\n\n🔗 𝙃𝙤𝙬 𝙩𝙤 𝙪𝙨𝙚:👉 {USAGE}\n💬 Oғғɪᴄɪᴀʟ Sᴜᴘᴘᴏʀᴛ:   👉 {SUPPORT}\n🤖 Oғғɪᴄɪᴀʟ Bᴏᴛ:     👉 {BOT_USER}\n\n🛟 Fᴇᴇʟ Fʀᴇᴇ Tᴏ Rᴇᴀᴄʜ Oᴜ𝙩 Iғ Yᴏᴜ Nᴇᴇᴅ Aɴʏ Hᴇʟᴘ!")
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(text="📲 Support", url=f"https://t.me/{SUPPORT}"),
+        InlineKeyboardButton(text="📲 Support", url=get_support_url()),
         InlineKeyboardButton(text="🔗 𝙃𝙤𝙬 𝙩𝙤 𝙪𝙨𝙚", url=f"https://t.me/vthnet")
     )
     # Added back button
