@@ -911,6 +911,17 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
     )
     if not number_doc:
         return await cq.message.answer("⚠️ Selected stock sold out. Choose again.")
+    # Per-user discount applies to all account purchases, not stock list prices.
+    from decimal import Decimal, ROUND_HALF_UP
+    buyer = users_col.find_one({"_id": user_id}) or {}
+    try:
+        discount = Decimal(str(buyer.get("discount_percent", 0)))
+        if not discount.is_finite() or not 0 <= discount <= 100:
+            discount = Decimal("0")
+    except Exception:
+        discount = Decimal("0")
+    price = float((Decimal(str(number_doc["price"])) * (Decimal("100") - discount)
+                   / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     debit = users_col.update_one({"_id": user_id, "balance": {"$gte": price}},
                                  {"$inc": {"balance": -price}})
     if not debit.modified_count:
