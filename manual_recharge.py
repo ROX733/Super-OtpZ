@@ -79,6 +79,11 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         await cq.message.edit_text(f"💳 <b>{escape(method['name'])}</b>\\nEnter amount in INR (₹1–₹100000).\\n/cancel to stop.")
         await cq.answer()
 
+    @dp.message(StateFilter(ManualRecharge.amount, ManualRecharge.proof, ManualRecharge.custom), Command("cancel"))
+    async def cancel(message, state):
+        await state.clear()
+        await message.answer("Cancelled.")
+
     @dp.message(StateFilter(ManualRecharge.amount))
     async def amount_received(message, state):
         amount = money((message.text or "").strip())
@@ -247,7 +252,3 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         await settle(CallbackProxy(), data["custom_rid"], True, amount)
         await state.clear()
 
-    @dp.message(StateFilter(ManualRecharge.amount, ManualRecharge.proof, ManualRecharge.custom), Command("cancel"))
-    async def cancel(message, state):
-        await state.clear()
-        await message.answer("Cancelled.")
