@@ -97,6 +97,23 @@ class AdminActionMiddleware(BaseMiddleware):
 
 dp.update.middleware(AdminActionMiddleware())
 
+class MaintenanceMiddleware(BaseMiddleware):
+    """Stop non-admin updates while maintenance is enabled; admins remain exempt."""
+    async def __call__(self, handler, event, data):
+        user = data.get("event_from_user")
+        if user and user.id not in ADMIN_IDS:
+            enabled = (db["admin_settings"].find_one({"_id": "maintenance"}) or {}).get("enabled", False)
+            if enabled:
+                if isinstance(event, Message):
+                    await event.answer("🔴 Bot Under Maintenance\\nPlease try again later.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("🔴 Bot Under Maintenance", show_alert=True)
+                return
+        return await handler(event, data)
+
+dp.update.middleware(MaintenanceMiddleware())
+
+
 
 # ================= FSM =================
 class AddSession(StatesGroup):
