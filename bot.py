@@ -924,23 +924,39 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
 async def cmd_add_start(msg: Message, state: FSMContext):
     if not is_admin(msg.from_user.id):
         return await msg.answer("❌ Not authorized.")
-    countries = list(countries_col.find({}))
-    if not countries:
-        return await msg.answer("❌ No countries found. Add some countries first in DB.")
-    kb = InlineKeyboardBuilder()
-    for c in countries:
-        kb.button(text=c["name"], callback_data=f"add_country:{c['name']}")
-    kb.adjust(2)
-    await msg.answer("🌍 Select the country you want to add a number for:", reply_markup=kb.as_markup())
+    await state.clear()
     await state.set_state(AddSession.waiting_country)
+    await msg.answer("🌍 Enter country name (e.g. India). Existing countries can be reused; new ones will be created automatically. Type cancel to stop.")
+
+
+@dp.message(AddSession.waiting_country)
+async def add_account_country(msg: Message, state: FSMContext):
+    if not is_admin(msg.from_user.id):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
+    country_name = (msg.text or "").strip()
+    if country_name.lower() == "cancel":
+        await state.clear()
+        return await msg.answer("❌ Cancelled.")
+    if not country_name or len(country_name) > 50 or any(ch in country_name for ch in "<>\\n\\r"):
+        return await msg.answer("❌ Enter a valid country name (up to 50 characters).")
+    existing = countries_col.find_one({"name": {"$regex": "^" + re.escape(country_name) + "$", "$options": "i"}})
+    country_name = existing["name"] if existing else country_name
+    await state.update_data(country=country_name)
+    await msg.answer(f"📞 Enter phone number for {html.escape(country_name)} (e.g. +14151234567):")
+    await state.set_state(AddSession.waiting_number)
+
 
 @dp.callback_query(F.data.startswith("add_country:"))
 async def callback_add_country(cq: CallbackQuery, state: FSMContext):
+    if not is_admin(cq.from_user.id):
+        return await cq.answer("❌ Not authorized.", show_alert=True)
     await cq.answer()
-    _, country_name = cq.data.split(":", 1)
+    country_name = cq.data.split(":", 1)[1]
     await state.update_data(country=country_name)
-    await cq.message.answer(f"📞 Enter the phone number for {country_name} (e.g., +14151234567):")
+    await cq.message.answer(f"📞 Enter the phone number for {html.escape(country_name)}:")
     await state.set_state(AddSession.waiting_number)
+
 
 @dp.message(AddSession.waiting_number)
 async def add_number_get_code(msg: Message, state: FSMContext):
