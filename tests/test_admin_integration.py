@@ -32,7 +32,6 @@ class IntegrationSafetyTests(unittest.TestCase):
         self.assertIn("class AdminActionMiddleware", bot)
         self.assertIn("class AdminPermissionMiddleware", admin)
         self.assertIn("permission_for(action)", admin)
-        self.assertIn('uid in admin_ids or', admin) if False else None
 
     def test_feature_hooks(self):
         bot = self.source("bot.py")
