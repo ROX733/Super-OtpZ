@@ -34,6 +34,17 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         except (InvalidOperation, ValueError):
             return None
 
+    @dp.callback_query(F.data == "recharge")
+    async def recharge_options(cq):
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⚡ Automatic UPI", callback_data="gw_recharge")
+        if enabled() and methods.count_documents({}):
+            kb.button(text="💳 Manual Payment", callback_data="manual_recharge")
+        kb.button(text="⬅️ Main Menu", callback_data="back_main")
+        kb.adjust(1)
+        await cq.message.edit_text("💳 <b>Recharge Wallet</b>\\nSelect payment type:", reply_markup=kb.as_markup())
+        await cq.answer()
+
     @dp.callback_query(F.data == "manual_recharge")
     async def choose_method(cq):
         if not enabled():
