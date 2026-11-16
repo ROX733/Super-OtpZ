@@ -18,6 +18,9 @@ ACTIONS = [
     ("📢 Broadcast", "broadcast"),
 ]
 
+class SetBio(StatesGroup):
+    waiting = State()
+
 class ManageAdmins(StatesGroup):
     waiting = State()
 
@@ -75,6 +78,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="💾 Backup Users", callback_data="adm_backup")
         kb.button(text="🔄 Restore Users", callback_data="adm_restore")
         kb.button(text="👑 Manage Admins", callback_data="adm_admins")
+        kb.button(text="📝 Set Bio", callback_data="adm_setbio")
         kb.button(text="💳 Payments", callback_data="adm_payments")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
@@ -89,6 +93,58 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         settings.update_one({"_id": "maintenance"}, {"$set": {"enabled": new_value}}, upsert=True)
         await cq.message.edit_reply_markup(reply_markup=menu())
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
+
+    @dp.callback_query(F.data == "adm_setbio")
+    async def bio_start(cq, state):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        await state.set_state(SetBio.waiting)
+        await state.update_data(bio_chat=cq.message.chat.id, bio_message=cq.message.message_id)
+        await cq.message.edit_text("📝 Send account phone number and new bio separated by a space.\\n"
+                                   "Example: +919876543210 Available for messages\\n"
+                                   "Bio will be applied to the stored Telegram session. /cancel to stop.")
+        await cq.answer()
+
+    @dp.message(StateFilter(SetBio.waiting), Command("cancel"))
+    async def bio_cancel(message, state):
+        await state.clear()
+        await message.answer("Cancelled.")
+
+    @dp.message(StateFilter(SetBio.waiting))
+    async def bio_apply(message, state):
+        if message.from_user.id not in admin_ids:
+            await state.clear()
+            return
+        import re
+        parts = (message.text or "").strip().split(maxsplit=1)
+        if len(parts) != 2 or not re.fullmatch(r"\\+?[0-9]{8,15}", parts[0]) or not 1 <= len(parts[1]) <= 70:
+            return await message.answer("❌ Format: phone_number bio (1–70 characters).")
+        phone = parts[0].lstrip("+")
+        record = numbers.find_one({"number": {"$in": [phone, "+" + phone]}})
+        if not record or not record.get("string_session"):
+            return await message.answer("❌ Stored account/session not found.")
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        from telethon.tl.functions.account import UpdateProfileRequest
+        import os
+        api_id = int(os.getenv("API_ID", "0"))
+        api_hash = os.getenv("API_HASH", "")
+        if not api_id or not api_hash:
+            return await message.answer("❌ API_ID/API_HASH not configured.")
+        client = TelegramClient(StringSession(record["string_session"]), api_id, api_hash)
+        try:
+            await client.connect()
+            if not await client.is_user_authorized():
+                return await message.answer("❌ Session expired.")
+            await client(UpdateProfileRequest(about=parts[1]))
+        except Exception:
+            return await message.answer("❌ Unable to update bio; check session permissions.")
+        finally:
+            await client.disconnect()
+        data = await state.get_data()
+        await state.clear()
+        await bot.edit_message_text(chat_id=data["bio_chat"], message_id=data["bio_message"],
+                                    text="✅ Telegram account bio updated.", reply_markup=menu())
 
     @dp.callback_query(F.data == "adm_admins")
     async def manage_admins(cq):
