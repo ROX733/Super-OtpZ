@@ -55,8 +55,8 @@ USAGE = "shebroked"
 OWNER = "ROX"
 UPDATES= "shebroked"
 CHANNEL="CHANNEL"
-SALESLOG = "shebroked"
-ADMINLOG = "-1004485862613"
+SALESLOG = "@Super_OtpZ"
+ADMINLOGS = -1003876364672
 # ================= Ban Middleware =================
 class BanCheckMiddleware(BaseMiddleware):
     async def __call__(
