@@ -16,6 +16,11 @@ ACTIONS = [
     ("📢 Broadcast", "broadcast"),
 ]
 
+class PaymentMethodState(StatesGroup):
+    name = State()
+    qr = State()
+    caption = State()
+
 class StockPrice(StatesGroup):
     waiting_price = State()
 
@@ -35,6 +40,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     database = handlers["users_col"].database
     settings = database["admin_settings"]
     numbers = database["numbers"]
+    payment_methods = database["manual_payment_methods"]
 
     def maintenance_enabled():
         return bool((settings.find_one({"_id": "maintenance"}) or {}).get("enabled", False))
@@ -49,7 +55,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="📢 Broadcast", callback_data="admin_do:broadcast")
         kb.button(text="👤 User Info", callback_data="admin_user_lookup")
         kb.button(text="💰 Change Balance", callback_data="admin_do:changebalance")
-        kb.button(text="💳 Payments", callback_data="gw_settings")
+        kb.button(text="💳 Payments", callback_data="adm_payments")
         kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
         kb.adjust(1, 2, 2, 2, 2, 1, 1)
@@ -63,6 +69,145 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         settings.update_one({"_id": "maintenance"}, {"$set": {"enabled": new_value}}, upsert=True)
         await cq.message.edit_reply_markup(reply_markup=menu())
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
+
+    def payment_menu():
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Add Payment Method", callback_data="adm_pay_add")
+        kb.button(text="🗑 Remove Payment Method", callback_data="adm_pay_remove")
+        kb.button(text="🔄 Manual ON/OFF", callback_data="adm_pay_toggle")
+        kb.button(text="⚡ Automatic UPI Gateway", callback_data="gw_settings")
+        kb.button(text="⬅️ Back to Admin", callback_data="admin_panel")
+        kb.adjust(1)
+        return kb.as_markup()
+
+    def manual_enabled():
+        return (settings.find_one({"_id": "manual_payments"}) or {}).get("enabled", False)
+
+    @dp.callback_query(F.data == "adm_payments")
+    async def payment_panel(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        count = payment_methods.count_documents({})
+        await cq.message.edit_text(
+            f"💳 <b>Manage Payment Methods</b>\\n"
+            f"Manual: {'🟢 ON' if manual_enabled() else '🔴 OFF'}\\n"
+            f"Configured methods: {count}\\n"
+            "Automatic UPI: Existing gateway settings",
+            reply_markup=payment_menu(), parse_mode="HTML")
+        await cq.answer()
+
+    @dp.callback_query(F.data == "adm_pay_toggle")
+    async def payment_toggle(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        new = not manual_enabled()
+        settings.update_one({"_id": "manual_payments"}, {"$set": {"enabled": new}}, upsert=True)
+        await payment_panel(cq)
+
+    @dp.callback_query(F.data == "adm_pay_add")
+    async def payment_add(cq, state):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        await state.set_state(PaymentMethodState.name)
+        await state.update_data(pay_chat=cq.message.chat.id, pay_message=cq.message.message_id)
+        await cq.message.edit_text("➕ <b>Add Payment Method</b>\\nSend payment method name (e.g. PhonePe). /cancel to stop.")
+        await cq.answer()
+
+    @dp.message(StateFilter(PaymentMethodState.name))
+    async def payment_name(message, state):
+        if not is_admin(message.from_user.id):
+            await state.clear()
+            return
+        name = (message.text or "").strip()
+        if not 1 <= len(name) <= 60:
+            return await message.answer("Enter a name up to 60 characters.")
+        await state.update_data(pay_name=name)
+        await state.set_state(PaymentMethodState.qr)
+        await message.answer("📸 Send QR image, or type skip.")
+
+    @dp.message(StateFilter(PaymentMethodState.qr))
+    async def payment_qr(message, state):
+        if not is_admin(message.from_user.id):
+            await state.clear()
+            return
+        if message.photo:
+            qr = message.photo[-1].file_id
+        elif (message.text or "").strip().lower() == "skip":
+            qr = None
+        else:
+            return await message.answer("Send a photo or type skip.")
+        await state.update_data(pay_qr=qr)
+        await state.set_state(PaymentMethodState.caption)
+        await message.answer("📝 Send payment instructions / UPI ID (max 500 characters).")
+
+    @dp.message(StateFilter(PaymentMethodState.caption))
+    async def payment_caption(message, state):
+        if not is_admin(message.from_user.id):
+            await state.clear()
+            return
+        caption = (message.text or "").strip()
+        if not 1 <= len(caption) <= 500:
+            return await message.answer("Send valid instructions (max 500 characters).")
+        data = await state.get_data()
+        payment_methods.insert_one({
+            "name": data["pay_name"], "qr_file_id": data["pay_qr"],
+            "caption": caption, "created_by": message.from_user.id
+        })
+        await state.clear()
+        await bot.edit_message_text(
+            chat_id=data["pay_chat"], message_id=data["pay_message"],
+            text=f"✅ Payment Method Added: <b>{escape(data['pay_name'])}</b>",
+            parse_mode="HTML", reply_markup=payment_menu())
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+    @dp.callback_query(F.data == "adm_pay_remove")
+    async def payment_remove_menu(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        methods = list(payment_methods.find({}, {"name": 1}).limit(50))
+        kb = InlineKeyboardBuilder()
+        for method in methods:
+            kb.button(text=f"🗑 {method['name']}", callback_data=f"adm_pay_del:{method['_id']}")
+        kb.button(text="⬅️ Back", callback_data="adm_payments")
+        kb.adjust(1)
+        await cq.message.edit_text("🗑 Select method to remove:" if methods else "No manual payment methods.",
+                                   reply_markup=kb.as_markup())
+        await cq.answer()
+
+    @dp.callback_query(F.data.startswith("adm_pay_del:"))
+    async def payment_delete(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        from bson import ObjectId
+        try:
+            oid = ObjectId(cq.data.partition(":")[2])
+        except Exception:
+            return await cq.answer("Invalid method", show_alert=True)
+        method = payment_methods.find_one({"_id": oid})
+        if not method:
+            return await cq.answer("Already removed", show_alert=True)
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Confirm Remove", callback_data=f"adm_pay_confirm:{oid}")
+        kb.button(text="❌ Cancel", callback_data="adm_pay_remove")
+        kb.adjust(1)
+        await cq.message.edit_text(f"Remove <b>{escape(method['name'])}</b>?", reply_markup=kb.as_markup())
+        await cq.answer()
+
+    @dp.callback_query(F.data.startswith("adm_pay_confirm:"))
+    async def payment_delete_confirm(cq):
+        if not is_admin(cq.from_user.id):
+            return await cq.answer("Not authorized", show_alert=True)
+        from bson import ObjectId
+        try:
+            oid = ObjectId(cq.data.partition(":")[2])
+        except Exception:
+            return await cq.answer("Invalid method", show_alert=True)
+        payment_methods.delete_one({"_id": oid})
+        await cq.message.edit_text("✅ Payment Method Removed", reply_markup=payment_menu())
+        await cq.answer()
 
     def stock_countries():
         return sorted(numbers.distinct("country", {"used": False, "country": {"$type": "string"}}))
@@ -275,6 +420,11 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             else:
                 await handler(msg, state)
         await cq.answer()
+
+    @dp.message(StateFilter(PaymentMethodState), Command("cancel"))
+    async def cancel_payment_setup(message, state):
+        await state.clear()
+        await message.answer("Payment method setup cancelled.")
 
     @dp.message(StateFilter(AdminBroadcast.waiting_message), Command("cancel"))
     async def cancel_broadcast(message, state):
