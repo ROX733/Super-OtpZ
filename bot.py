@@ -104,7 +104,11 @@ class AddSession(StatesGroup):
     waiting_number = State()
     waiting_otp = State()
     waiting_password = State()
-    waiting_next_action = State()   # ✅ REQUIRED
+    waiting_next_action = State()
+    waiting_year = State()
+    waiting_status_confirm = State()
+    waiting_category = State()
+    waiting_price = State()
 
 class SellSession(StatesGroup):
     # ... existing states ...
@@ -995,136 +999,126 @@ async def add_number_get_code(msg: Message, state: FSMContext):
         await msg.answer(f"❌ Failed to send code: {e}")
 
 
+async def finish_account_login(msg, state, string_session, password=None):
+    """Keep credentials private and collect metadata before listing an account."""
+    await state.update_data(string_session=string_session, password=password)
+    await msg.answer("✅ Login Successful!\n📅 Enter account creation year (e.g. 2024). If unknown, type unknown:")
+    await state.set_state(AddSession.waiting_year)
+
+
 @dp.message(AddSession.waiting_otp)
 async def add_number_verify_code(msg: Message, state: FSMContext):
     data = await state.get_data()
-    country = data["country"]
-    phone = data["number"]
-    session_str = data["session"]
-    phone_code_hash = data.get("phone_code_hash")
-
-    api_id = int(os.getenv("API_ID"))
-    api_hash = os.getenv("API_HASH")
-
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    client = TelegramClient(StringSession(data["session"]), int(os.getenv("API_ID")), os.getenv("API_HASH"))
     await client.connect()
-
     try:
-        await client.sign_in(
-            phone=phone,
-            code=msg.text.strip(),
-            phone_code_hash=phone_code_hash
-        )
-
-        string_session = client.session.save()
+        await client.sign_in(phone=data["number"], code=msg.text.strip(), phone_code_hash=data["phone_code_hash"])
+        session_string = client.session.save()
+        await finish_account_login(msg, state, session_string)
+    except SessionPasswordNeededError:
+        await state.update_data(session=client.session.save())
+        await msg.answer("🔐 2FA enabled. Enter the password:")
+        await state.set_state(AddSession.waiting_password)
+    except Exception:
+        await msg.answer("❌ Login verification failed. Check the code and try again.")
+    finally:
         await client.disconnect()
-
-        # 🔹 SAVE / UPDATE NUMBER
-        numbers_col.update_one(
-            {"number": phone},
-            {
-                "$set": {
-                    "country": country,
-                    "string_session": string_session,
-                    "password": None,
-                    "used": False
-                }
-            },
-            upsert=True
-        )
-
-        # 🔥 ADD TO STOCK (YOU MISSED THIS)
-        countries_col.update_one(
-            {"name": country},
-            {"$inc": {"stock": 1}},
-            upsert=True
-        )
-
-        await msg.answer(
-            f"✅ Session Added Successfully\n\n"
-            f"🌍 Country: {country}\n"
-            f"📱 Number: <code>{phone}</code>\n"
-            f"🔐 Password: <code>None</code>\n\n"
-            f"🔑 String Session:\n"
-            f"<blockquote expandable><code>{string_session}</code></blockquote>",
-            parse_mode="HTML"
-        )
-
-        await msg.answer(
-            "➕ Send another phone number for this country\n"
-            "❌ Or type <b>cancel</b> to stop.",
-            parse_mode="HTML"
-        )
-        await state.set_state(AddSession.waiting_next_action)
-    except Exception as e:
-        if "PASSWORD" in str(e).upper():
-            await msg.answer("🔐 Two-step verification enabled. Send password:")
-            await state.set_state(AddSession.waiting_password)
-        else:
-            await client.disconnect()
-            await msg.answer(f"❌ Error verifying OTP: {e}")
-            
 
 
 @dp.message(AddSession.waiting_password)
 async def add_number_with_password(msg: Message, state: FSMContext):
     data = await state.get_data()
-    country = data["country"]
-    phone = data["number"]
-    session_str = data["session"]
-    password = msg.text.strip()
-
-    api_id = int(os.getenv("API_ID"))
-    api_hash = os.getenv("API_HASH")
-
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    client = TelegramClient(StringSession(data["session"]), int(os.getenv("API_ID")), os.getenv("API_HASH"))
     await client.connect()
-
     try:
-        await client.sign_in(password=password)
-        string_session = client.session.save()
+        await client.sign_in(password=msg.text.strip())
+        await finish_account_login(msg, state, client.session.save(), msg.text.strip())
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    except Exception:
+        await msg.answer("❌ 2FA verification failed. Try again.")
+    finally:
         await client.disconnect()
 
-        # 🔹 SAVE / UPDATE NUMBER
-        numbers_col.update_one(
-            {"number": phone},
-            {
-                "$set": {
-                    "country": country,
-                    "string_session": string_session,
-                    "password": password,
-                    "used": False
-                }
-            },
-            upsert=True
-        )
 
-        # 🔥 ADD TO STOCK (CRITICAL)
-        countries_col.update_one(
-            {"name": country},
-            {"$inc": {"stock": 1}},
-            upsert=True
-        )
+@dp.message(AddSession.waiting_year)
+async def add_account_year(msg: Message, state: FSMContext):
+    value = msg.text.strip()
+    year = int(value) if value.isdigit() else None
+    if year is not None and not (2013 <= year <= datetime.now(timezone.utc).year):
+        return await msg.answer("❌ Enter a valid year from 2013 to the current year, or unknown.")
+    if year is None and value.lower() != "unknown":
+        return await msg.answer("Enter a year such as 2024, or unknown.")
+    await state.update_data(year=year)
+    await msg.answer("🔍 ACCOUNT STATUS CHECK\nCheck the account with @SpamBot and enter: good, temporary spam, or permanent spam.\n(Automatic status verification is not available yet.)")
+    await state.set_state(AddSession.waiting_status_confirm)
 
-        await msg.answer(
-            f"✅ Session Added Successfully (2FA)\n\n"
-            f"🌍 Country: {country}\n"
-            f"📱 Number: <code>{phone}</code>\n"
-            f"🔐 Password: <code>{password}</code>\n\n"
-            f"🔑 String Session:\n"
-            f"<blockquote expandable><code>{string_session}</code></blockquote>",
-            parse_mode="HTML"
-        )
 
-        await msg.answer(
-            "➕ Send another phone number for this country\n"
-            "❌ Or type <b>cancel</b> to stop.",
-            parse_mode="HTML"
-        )
-        await state.set_state(AddSession.waiting_next_action)
-    except Exception as e:
-        await client.disconnect()
-        await msg.answer(f"❌ Error signing in with password: {e}")
+@dp.message(AddSession.waiting_status_confirm)
+async def add_account_status(msg: Message, state: FSMContext):
+    value = msg.text.strip().lower()
+    mapping = {"good": "Good", "healthy": "Good", "temporary spam": "Temporary Spam", "permanent spam": "Permanent Spam"}
+    if value not in mapping:
+        return await msg.answer("Enter good, temporary spam, or permanent spam.")
+    status = mapping[value]
+    await state.update_data(status=status)
+    if status == "Good":
+        await state.update_data(category="Good")
+        await msg.answer("🟢 HEALTHY\n💰 Enter account price in INR:")
+        await state.set_state(AddSession.waiting_price)
+    else:
+        await msg.answer(f"⚠️ {status}. Enter a custom category name, or type default:")
+        await state.set_state(AddSession.waiting_category)
+
+
+@dp.message(AddSession.waiting_category)
+async def add_account_category(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    category = data["status"] if msg.text.strip().lower() == "default" else msg.text.strip()
+    if not category or len(category) > 40:
+        return await msg.answer("Category must be 1–40 characters.")
+    await state.update_data(category=category)
+    await msg.answer("💰 Enter account price in INR:")
+    await state.set_state(AddSession.waiting_price)
+
+
+@dp.message(AddSession.waiting_price)
+async def add_account_price(msg: Message, state: FSMContext):
+    try:
+        price = float(msg.text.strip())
+        if not (0 < price < 1000000):
+            raise ValueError()
+    except ValueError:
+        return await msg.answer("❌ Enter a valid positive price, e.g. 20.")
+    data = await state.get_data()
+    phone = data["number"]
+    country = data["country"]
+    old = numbers_col.find_one({"number": phone})
+    if old and old.get("used"):
+        return await msg.answer("❌ Previously sold account cannot be relisted automatically. Contact admin.")
+    numbers_col.update_one({"number": phone}, {"$set": {
+        "country": country, "string_session": data["string_session"],
+        "password": data.get("password"), "used": False,
+        "year": data.get("year"), "status": data["status"],
+        "category": data["category"], "price": price
+    }}, upsert=True)
+    if not old:
+        countries_col.update_one({"name": country}, {"$inc": {"stock": 1}, "$setOnInsert": {"price": price}}, upsert=True)
+    await msg.answer(
+        "✅ ✅ ACCOUNT ADDED!\n\n"
+        f"📱 <code>{html.escape(str(phone))}</code>\n"
+        f"🌍 {html.escape(str(country))}\n"
+        f"📅 Year: {data.get('year') or 'Unknown'}\n"
+        f"🏷️ Category: {html.escape(data['category'])}\n"
+        f"💰 Price: ₹{price:g}\n"
+        f"🔐 2FA: {'Enabled' if data.get('password') else 'None'}\n\n"
+        "📌 You can now add another account",
+        parse_mode="HTML"
+    )
+    await state.set_state(AddSession.waiting_next_action)
+
 
 @dp.message(AddSession.waiting_next_action)
 async def add_next_number_or_cancel(msg: Message, state: FSMContext):
