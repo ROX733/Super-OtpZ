@@ -706,11 +706,16 @@ async def callback_buy_server2(cq: CallbackQuery):
 COUNTRIES_PER_PAGE = 10
 
 async def send_country_menu(cq: CallbackQuery, page: int = 0):
-    countries = await asyncio.to_thread(lambda: list(countries_col.find({})))
+    counts = {}
+    for account in numbers_col.find({"used": False}, {"country": 1}):
+        name = account.get("country")
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    countries = [{"name": name, "stock": count} for name, count in sorted(counts.items())]
     total = len(countries)
-
-    if total == 0:
-        return await cq.message.edit_text("❌ No countries available. Admin must add stock first.")
+    if not total:
+        return await cq.message.edit_text("❌ No Accounts Are Available Right Now!")
+    page = max(0, min(page, (total - 1) // COUNTRIES_PER_PAGE))
     user_id = cq.from_user.id
     full_name = cq.from_user.full_name  # always use the name
     user_mention = f"<a href='tg://user?id={user_id}'>{full_name}</a>"
@@ -755,77 +760,107 @@ async def paginate_countries(cq: CallbackQuery):
     await cq.answer()
 
 # =============== Country Selection =================
+def account_category(account):
+    return account.get("category") or "Good"
+
+
+def account_status(account):
+    return account.get("status") or ("Good" if account_category(account) == "Good" else account_category(account))
+
+
+def category_label(category, status):
+    return {"Good": "🟢 HEALTHY", "Temporary Spam": "🟠 TEMPORARY SPAM",
+            "Permanent Spam": "🔴 PERMANENT SPAM"}.get(status, str(category))
+
+
 @dp.callback_query(lambda c: c.data.startswith("country:"))
-async def callback_country(cq: CallbackQuery):
+async def callback_country(cq: CallbackQuery, state: FSMContext):
     await cq.answer()
-    _, country_name = cq.data.split(":", 1)
-
-    country = await asyncio.to_thread(lambda: countries_col.find_one({"name": country_name}))
-    if not country:
-        return await cq.answer("❌ Country not found", show_alert=True)
-
-    # Group unsold accounts by the metadata entered by the admin.
-    accounts = list(numbers_col.find({"country": country_name, "used": False}))
+    country_name = cq.data.split(":", 1)[1]
     groups = {}
-    for account in accounts:
-        key = (account.get("year"), account.get("category", "Good"),
-               account.get("status", "Good"), float(account.get("price") or country.get("price") or 0))
-        groups.setdefault(key, 0)
-        groups[key] += 1
-    lines = ["📅 <b>SELECT ACCOUNT YEAR</b>", f"🌍 <b>Country:</b> {html.escape(country_name)}"]
+    for account in numbers_col.find({"country": country_name, "used": False}):
+        key = (account_category(account), account_status(account))
+        groups[key] = groups.get(key, 0) + 1
+    await state.update_data(buy_country=country_name, buy_categories=list(groups), selected_stock=None)
     kb = InlineKeyboardBuilder()
-    for (year, category, status, price), count in groups.items():
-        label = ("🟢 HEALTHY" if status == "Good" else
-                 "🟠 TEMPORARY SPAM" if status == "Temporary Spam" else
-                 "🔴 PERMANENT SPAM" if status == "Permanent Spam" else html.escape(str(category)))
-        lines.append(f"\n{label} | {year or 'Unknown'} | ₹{price:g} | {count} Account(s)")
-        kb.row(InlineKeyboardButton(
-            text=f"{year or 'Unknown'} | ₹{price:g} | {count} | {label}",
-            callback_data=f"select_stock:{list(groups).index((year, category, status, price))}"
-        ))
+    for index, ((category, status), count) in enumerate(groups.items()):
+        kb.row(InlineKeyboardButton(text=f"{category_label(category, status)} ({count})",
+                                    callback_data=f"stock_category:{index}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back to Countries", callback_data="buy_server1"))
+    title = f"🏷️ <b>ACCOUNT CATEGORY</b>\n🌍 Country: {html.escape(country_name)}\n\nSelect category."
     if not groups:
-        lines.append("\n⚠️ Out of stock.")
-    kb.row(InlineKeyboardButton(text="🔙 Back", callback_data="buy_server1"))
-    await cq.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=kb.as_markup())
+        title += "\n\n⚠️ Out of stock."
+    await cq.message.edit_text(title, parse_mode="HTML", reply_markup=kb.as_markup())
+
+
+@dp.callback_query(F.data.startswith("stock_category:"))
+async def choose_stock_category(cq: CallbackQuery, state: FSMContext):
+    await cq.answer()
+    data = await state.get_data()
+    country_name = data.get("buy_country")
+    categories = data.get("buy_categories") or []
+    try:
+        index = int(cq.data.split(":", 1)[1])
+        if index < 0:
+            raise IndexError
+        category, status = categories[index]
+    except (ValueError, IndexError):
+        return await cq.message.answer("Selection expired. Choose country again.")
+    if not country_name:
+        return await cq.message.answer("Choose country again.")
+    country = countries_col.find_one({"name": country_name}) or {}
+    groups = {}
+    for account in numbers_col.find({"country": country_name, "used": False}):
+        if account_category(account) != category or account_status(account) != status:
+            continue
+        key = (account.get("year"), float(account.get("price") or country.get("price") or 0))
+        groups[key] = groups.get(key, 0) + 1
+    await state.update_data(buy_year_options=list(groups), buy_category=category, buy_status=status)
+    kb = InlineKeyboardBuilder()
+    for index, ((year, price), count) in enumerate(groups.items()):
+        kb.row(InlineKeyboardButton(text=f"📅 {year or 'Unknown'} | ₹{price:g} | {count} Account(s)",
+                                    callback_data=f"select_stock:{index}"))
+    kb.row(InlineKeyboardButton(text="🔙 Back to Categories", callback_data=f"country:{country_name}"))
+    title = (f"📅 <b>SELECT ACCOUNT YEAR</b>\n🌍 Country: {html.escape(country_name)}\n"
+             f"🏷️ Category: {html.escape(category_label(category, status))}")
+    if not groups:
+        title += "\n\n⚠️ Out of stock."
+    await cq.message.edit_text(title, parse_mode="HTML", reply_markup=kb.as_markup())
 
 
 @dp.callback_query(F.data.startswith("select_stock:"))
 async def select_stock(cq: CallbackQuery, state: FSMContext):
     await cq.answer()
-    # Country is recovered from the original menu's message rather than client input.
-    # Re-render selections if the menu is stale.
-    text = cq.message.text or ""
-    match = re.search(r"Country:\\s*(.+)", text)
-    if not match:
-        return await cq.message.answer("Selection expired. Select country again.")
-    country_name = match.group(1).splitlines()[0].strip()
-    country = countries_col.find_one({"name": country_name})
-    if not country:
-        return await cq.message.answer("Country unavailable. Select again.")
-    groups = {}
-    for account in numbers_col.find({"country": country_name, "used": False}):
-        key = (account.get("year"), account.get("category", "Good"),
-               account.get("status", "Good"), float(account.get("price") or country.get("price") or 0))
-        groups.setdefault(key, []).append(account)
-    index = int(cq.data.split(":", 1)[1])
-    keys = list(groups)
-    if index < 0 or index >= len(keys):
-        return await cq.message.answer("Stock changed. Select country again.")
-    key = keys[index]
-    account = groups[key][0]
-    price = key[3]
+    data = await state.get_data()
+    country_name = data.get("buy_country")
+    category = data.get("buy_category")
+    status = data.get("buy_status")
+    options = data.get("buy_year_options") or []
+    try:
+        index = int(cq.data.split(":", 1)[1])
+        if index < 0:
+            raise IndexError
+        year, price = options[index]
+    except (ValueError, IndexError):
+        return await cq.message.answer("Selection expired. Choose category again.")
+    if not country_name or not category or not status:
+        return await cq.message.answer("Selection expired. Choose country again.")
+    country = countries_col.find_one({"name": country_name}) or {}
+    account = next((item for item in numbers_col.find({"country": country_name, "used": False})
+                    if account_category(item) == category and account_status(item) == status
+                    and item.get("year") == year
+                    and float(item.get("price") or country.get("price") or 0) == price), None)
+    if not account:
+        return await cq.message.answer("Stock changed. Choose category again.")
     if price <= 0:
         return await cq.message.answer("Price missing. Contact admin.")
     user = get_or_create_user(cq.from_user.id, cq.from_user.username)
     if user.get("balance", 0) < price:
         return await cq.message.answer(f"❌ Insufficient balance. Required ₹{price:g}.")
-    await state.update_data(selected_stock={"country": country_name, "year": key[0],
-                           "category": key[1], "status": key[2], "price": price})
-    label = ("🟢 HEALTHY" if key[2] == "Good" else
-             "🟠 TEMPORARY SPAM" if key[2] == "Temporary Spam" else
-             "🔴 PERMANENT SPAM" if key[2] == "Permanent Spam" else html.escape(str(key[1])))
+    await state.update_data(selected_stock={"country": country_name, "year": year,
+                            "category": category, "status": status, "price": price})
     terms = (f"⚠️ <b>Account Buying Terms</b>\n\n🌍 Country: {html.escape(country_name)}\n"
-             f"📅 Year: {key[0] or 'Unknown'}\n🏷️ Category: {label}\n"
+             f"📅 Year: {year or 'Unknown'}\n🏷️ Category: {html.escape(category_label(category, status))}\n"
              f"💰 Price: ₹{price:g}\n\n🚫 No refunds after successful OTP delivery.\n"
              "❓ Do you accept these terms?")
     kb = InlineKeyboardMarkup(inline_keyboard=[[
