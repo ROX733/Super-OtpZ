@@ -24,7 +24,10 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         return bool((settings.find_one({"_id": "manual_payments"}) or {}).get("enabled", False))
 
     def admin(uid):
-        return uid in admin_ids
+        if uid in admin_ids:
+            return True
+        sub = db["subadmins"].find_one({"_id": uid, "active": True})
+        return bool(sub and "payments" in sub.get("permissions", []))
 
     def money(raw):
         try:
@@ -244,7 +247,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         await settle(CallbackProxy(), data["custom_rid"], True, amount)
         await state.clear()
 
-    @dp.message(StateFilter(ManualRecharge), Command("cancel"))
+    @dp.message(StateFilter(ManualRecharge.amount, ManualRecharge.proof, ManualRecharge.custom), Command("cancel"))
     async def cancel(message, state):
         await state.clear()
         await message.answer("Cancelled.")
