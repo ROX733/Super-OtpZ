@@ -181,36 +181,58 @@ def register_gateway(dp, bot, db, admin_ids):
                 if expired:
                     return await expire_order(cq, order_id)
                 return await cq.message.answer("⏳ Payment Not Received Yet")
-            # A previously verified order is valid only because it is our stored order,
-            # and its gateway verification was already recorded by the gateway.
-            detail = result.get("data") or {}
-            if detail:
-                paid_amount = detail.get("amount")
-                if paid_amount is not None and Decimal(str(paid_amount)) != Decimal(order["amount"]):
-                    return await cq.message.answer("Amount mismatch. Contact support.")
-            amount = float(Decimal(order["amount"]))
-            # Atomic user update prevents double credits even with concurrent checks/retries.
-            updated = users.update_one({"_id": order["user_id"], "credited_gateway_orders": {"$ne": order_id}},
+            # Do not credit an API response which lacks matching payment evidence.
+            detail = result.get("data")
+            if not isinstance(detail, dict):
+                return await cq.message.answer("Payment verification incomplete. Retry later.")
+            verified_id = detail.get("order_id", result.get("order_id"))
+            if verified_id is None or str(verified_id) != order_id:
+                return await cq.message.answer("Payment order mismatch. Contact support.")
+            if str(detail.get("status", "success")).lower() in ("pending", "expired", "failed"):
+                return await cq.message.answer("⏳ Payment Not Received Yet")
+            try:
+                verified_amount = Decimal(str(detail["amount"]))
+                expected_amount = Decimal(order["amount"])
+            except (KeyError, InvalidOperation, ValueError, TypeError):
+                return await cq.message.answer("Payment amount not verified. Retry later.")
+            if not verified_amount.is_finite() or verified_amount != expected_amount:
+                return await cq.message.answer("Amount mismatch. Contact support.")
+
+            amount = float(expected_amount)
+            # This user marker is the idempotency ledger for a successful recharge.
+            updated = users.update_one(
+                {"_id": order["user_id"], "credited_gateway_orders": {"$ne": order_id}},
                 {"$inc": {"balance": amount}, "$addToSet": {"credited_gateway_orders": order_id}})
-            if updated.modified_count:
-                payments.update_one({"_id": order_id}, {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}})
-            if updated.modified_count:
-                config = (db["admin_settings"].find_one({"_id": "referral"}) or {})
-                payer = users.find_one({"_id": order["user_id"]}) or {}
-                referrer = payer.get("referred_by")
-                try:
-                    pct = Decimal(str(config.get("percent", 0)))
-                    if not pct.is_finite() or not 0 <= pct <= 100:
-                        pct = Decimal("0")
-                except (InvalidOperation, ValueError):
+            credited = bool(updated.modified_count) or bool(users.find_one({
+                "_id": order["user_id"], "credited_gateway_orders": order_id
+            }))
+            if not credited:
+                return await cq.message.answer("Wallet unavailable; contact support.")
+
+            # Complete pending records even if a previous attempt crashed after
+            # applying the user credit but before setting the order paid.
+            payments.update_one({"_id": order_id, "status": "pending"}, {
+                "$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}
+            })
+
+            # A separate idempotency marker permits safe recovery if payment
+            # credit succeeded but referral processing previously failed.
+            config = (db["admin_settings"].find_one({"_id": "referral"}) or {})
+            payer = users.find_one({"_id": order["user_id"]}) or {}
+            referrer = payer.get("referred_by")
+            try:
+                pct = Decimal(str(config.get("percent", 0)))
+                if not pct.is_finite() or not 0 <= pct <= 100:
                     pct = Decimal("0")
-                if isinstance(referrer, int) and referrer != order["user_id"] and pct > 0:
-                    reward = (Decimal(order["amount"]) * pct / 100).quantize(Decimal("0.01"))
-                    if reward > 0:
-                        users.update_one(
-                            {"_id": referrer, "credited_referral_gateway_orders": {"$ne": order_id}},
-                            {"$inc": {"balance": float(reward)},
-                             "$addToSet": {"credited_referral_gateway_orders": order_id}})
+            except (InvalidOperation, ValueError):
+                pct = Decimal("0")
+            if isinstance(referrer, int) and referrer != order["user_id"] and pct > 0:
+                reward = (expected_amount * pct / 100).quantize(Decimal("0.01"))
+                if reward > 0:
+                    users.update_one(
+                        {"_id": referrer, "credited_referral_gateway_orders": {"$ne": order_id}},
+                        {"$inc": {"balance": float(reward)},
+                         "$addToSet": {"credited_referral_gateway_orders": order_id}})
             try:
                 await cq.message.delete()
             except Exception:
