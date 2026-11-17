@@ -178,6 +178,9 @@ def get_or_create_user(user_id: int, username: str | None):
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
+def has_admin_permission(user_id: int, permission: str) -> bool:
+    return authorized(user_id, ADMIN_IDS, db["subadmins"], permission)
+
 def get_user_balance(user_id):
     user = users_col.find_one({"_id": user_id})
     return user.get("balance", 0) if user else 0
@@ -1013,7 +1016,7 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
 # ================= Admin Add Number Flow =================
 @dp.message(Command("add"))
 async def cmd_add_start(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
         return await msg.answer("❌ Not authorized.")
     await state.clear()
     await state.set_state(AddSession.waiting_country)
@@ -1022,7 +1025,7 @@ async def cmd_add_start(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_country)
 async def add_account_country(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
         await state.clear()
         return await msg.answer("❌ Not authorized.")
     country_name = (msg.text or "").strip()
@@ -1040,7 +1043,7 @@ async def add_account_country(msg: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("add_country:"))
 async def callback_add_country(cq: CallbackQuery, state: FSMContext):
-    if not is_admin(cq.from_user.id):
+    if not has_admin_permission(cq.from_user.id, "accounts"):
         return await cq.answer("❌ Not authorized.", show_alert=True)
     await cq.answer()
     country_name = cq.data.split(":", 1)[1]
@@ -1236,7 +1239,7 @@ class RemoveSession(StatesGroup):
 #Remove
 @dp.message(Command("remove"))
 async def cmd_remove_start(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
         return await msg.answer("❌ Not authorized.")
 
     countries = list(countries_col.find({}))
@@ -1338,7 +1341,7 @@ async def callback_remove_country(cq: CallbackQuery):
 
 @dp.message(Command("db"))
 async def cmd_db(msg: Message):
-    if not is_admin(msg.from_user.id):
+    if not has_admin_permission(msg.from_user.id, "stats"):
         return await msg.answer("❌ Not authorized.")
 
     countries = list(countries_col.find({}))
@@ -1381,7 +1384,7 @@ class SellSession(StatesGroup):
 # --- Admin Command: Set Sell Prices ---
 @dp.message(Command("setprices"))
 async def cmd_set_prices(msg: Message, state: FSMContext):
-    if not is_admin(msg.from_user.id):
+    if not has_admin_permission(msg.from_user.id, "stock"):
         return await msg.answer("❌ Not authorized.")
     
     await msg.answer(
