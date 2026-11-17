@@ -112,13 +112,23 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                 kb.button(text=label, callback_data=action)
                 visible.append(action)
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
-        # Two buttons per row; maintenance and Back remain full-width.
-        widths = [1]
-        middle = len(visible) - (1 if "admin_toggle_maintenance" in visible else 0)
-        widths.extend([2] * (middle // 2))
-        if middle % 2:
-            widths.append(1)
-        widths.append(1)
+        # Mixed dashboard: full-width status, a couple of paired rows,
+        # a full-width feature, then paired rows again.
+        # Only visible buttons are counted, so subadmin layouts remain valid.
+        pattern = [1, 2, 2, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2]
+        widths = []
+        remaining = len(visible)
+        for width in pattern:
+            if remaining <= 0:
+                break
+            take = min(width, remaining)
+            widths.append(take)
+            remaining -= take
+        while remaining > 0:
+            take = min(2, remaining)
+            widths.append(take)
+            remaining -= take
+        widths.append(1)  # Back to Menu
         kb.adjust(*widths)
         return kb.as_markup()
 
