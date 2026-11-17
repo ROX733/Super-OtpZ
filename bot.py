@@ -708,6 +708,11 @@ async def back_main(cq: CallbackQuery):
     
         ]
     ])
+    # Admin Panel is present on both /start and the returning main menu.
+    if is_admin(user_id) or db["subadmins"].find_one({"_id": user_id, "active": True}):
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(text="🛡 Admin Panel", callback_data="admin_panel")
+        ])
     await cq.message.edit_text(caption, parse_mode="HTML", reply_markup=kb)
     await cq.answer()
 
