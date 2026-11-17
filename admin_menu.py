@@ -384,7 +384,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         action = cq.data.partition(":")[2]
         prompts = {
             "discount": "👤 <b>User ID:</b>\n\nSend <i>/cancel</i> only if you want to abort.",
-            "ref": "👥 <b>Referral %</b> (0-100)\n\nSend <code>3</code> for 3%.\n<i>/cancel</i> to abort.",
+            "ref": "👥 <b>New Referral %:</b>\n\nSend <i>/cancel</i> only if you want to abort.",
             "support": "🔗 <b>Support URL</b>\n\nSend <code>https://t.me/username</code> or <code>@username</code>.\n<i>/cancel</i> to abort.",
             "ban": "🚫 <b>Ban / Unban</b>\n\nSend <code>123456789 ban</code> or <code>123456789 unban</code>.\n<i>/cancel</i> to abort."
         }
@@ -470,6 +470,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         except (ValueError, InvalidOperation):
             return await message.answer("❌ Invalid input. Follow the displayed format.")
         await state.clear()
+        if action == "ref":
+            await message.answer(f"✅ <b>Ref revenue set to <code>{pct:g}%</code>.</b>", parse_mode="HTML")
+            return
         await bot.edit_message_text(chat_id=data["config_chat"], message_id=data["config_message"],
                                     text=f"✅ {escape(action.title())} setting saved.", reply_markup=menu(message.from_user.id))
         try:
