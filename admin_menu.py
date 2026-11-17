@@ -100,31 +100,35 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     def maintenance_enabled():
         return bool((settings.find_one({"_id": "maintenance"}) or {}).get("enabled", False))
 
-    def menu():
+    def menu(uid=None):
         kb = InlineKeyboardBuilder()
-        kb.button(text=("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON"), callback_data="admin_toggle_maintenance")
-        kb.button(text="➕ Add Single Acc", callback_data="admin_do:add")
-        kb.button(text="📊 Manage Stock", callback_data="admin_stock_info")
-        kb.button(text="📞 Search / Price Account", callback_data="adm_single_price")
-        kb.button(text="💰 Set Account Prices", callback_data="admin_do:setprices")
-        kb.button(text="📈 Statistics", callback_data="admin_do:db")
-        kb.button(text="📢 Broadcast", callback_data="admin_do:broadcast")
-        kb.button(text="👤 User Info", callback_data="admin_user_lookup")
-        kb.button(text="💰 Change Balance", callback_data="admin_do:changebalance")
-        kb.button(text="🎁 Discount", callback_data="adm_config:discount")
-        kb.button(text="👥 Ref %", callback_data="adm_config:ref")
-        kb.button(text="🔗 Support URL", callback_data="adm_config:support")
-        kb.button(text="🚫 Ban / Unban", callback_data="adm_config:ban")
-        kb.button(text="📈 Sales Statistics", callback_data="adm_stats")
-        kb.button(text="💾 Backup Users", callback_data="adm_backup")
-        kb.button(text="🔄 Restore Users", callback_data="adm_restore")
-        kb.button(text="👑 Manage Admins", callback_data="adm_admins")
-        kb.button(text="📝 Set Bio", callback_data="adm_setbio")
-        kb.button(text="💳 Payments", callback_data="adm_payments")
-        kb.button(text="🧾 Pending Deposits", callback_data="adm_pending")
-        kb.button(text="➖ Remove Number", callback_data="admin_do:remove")
+        actions = [
+            ("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON", "admin_toggle_maintenance"),
+            ("➕ Add Single Acc", "admin_do:add"),
+            ("📊 Manage Stock", "admin_stock_info"),
+            ("📞 Search / Price Account", "adm_single_price"),
+            ("💰 Set Account Prices", "admin_do:setprices"),
+            ("📈 Statistics", "adm_stats"),
+            ("📢 Broadcast", "admin_do:broadcast"),
+            ("👤 User Info", "admin_user_lookup"),
+            ("💰 Change Balance", "admin_do:changebalance"),
+            ("🎁 Discount", "adm_config:discount"),
+            ("👥 Ref %", "adm_config:ref"),
+            ("🔗 Support URL", "adm_config:support"),
+            ("🚫 Ban / Unban", "adm_config:ban"),
+            ("💾 Backup Users", "adm_backup"),
+            ("🔄 Restore Users", "adm_restore"),
+            ("👑 Manage Admins", "adm_admins"),
+            ("📝 Set Bio", "adm_setbio"),
+            ("💳 Payments", "adm_payments"),
+            ("🧾 Pending Deposits", "adm_pending"),
+            ("➖ Remove Number", "admin_do:remove"),
+        ]
+        for label, action in actions:
+            if uid in admin_ids or (uid is not None and action not in ("adm_admins", "adm_setbio") and is_admin(uid, permission_for(action))):
+                kb.button(text=label, callback_data=action)
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
-        kb.adjust(1, 2, 2, 2, 2, 1, 1)
+        kb.adjust(1)
         return kb.as_markup()
 
     @dp.callback_query(F.data == "admin_toggle_maintenance")
@@ -133,7 +137,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         new_value = not maintenance_enabled()
         settings.update_one({"_id": "maintenance"}, {"$set": {"enabled": new_value}}, upsert=True)
-        await cq.message.edit_reply_markup(reply_markup=menu())
+        await cq.message.edit_reply_markup(reply_markup=menu(cq.from_user.id))
         await cq.answer("🔴 Maintenance enabled" if new_value else "🟢 Bot enabled", show_alert=True)
 
     @dp.callback_query(F.data == "adm_setbio")
@@ -186,7 +190,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         data = await state.get_data()
         await state.clear()
         await bot.edit_message_text(chat_id=data["bio_chat"], message_id=data["bio_message"],
-                                    text="✅ Telegram account bio updated.", reply_markup=menu())
+                                    text="✅ Telegram account bio updated.", reply_markup=menu(message.from_user.id))
 
     @dp.callback_query(F.data == "adm_admins")
     async def manage_admins(cq):
@@ -249,7 +253,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             result = "Admin removed"
         await state.clear()
         await bot.edit_message_text(chat_id=data["admin_chat"], message_id=data["admin_message"],
-                                    text="✅ " + result, reply_markup=menu())
+                                    text="✅ " + result, reply_markup=menu(message.from_user.id))
         try:
             await message.delete()
         except Exception:
@@ -265,7 +269,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             f"📈 <b>Bot Statistics</b>\\n👥 Users: {users.count_documents({})}\\n"
             f"📦 Available stock: {numbers.count_documents({'used': False})}\\n"
             f"🧾 Purchased orders: {orders.count_documents({'status': 'purchased'})}",
-            reply_markup=menu())
+            reply_markup=menu(cq.from_user.id))
         await cq.answer()
 
     @dp.callback_query(F.data == "adm_backup")
@@ -275,7 +279,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         users = list(handlers["users_col"].find({}))
         from bson import json_util
         payload = json_util.dumps(users, ensure_ascii=False, indent=2).encode("utf-8")
-        await cq.message.edit_text(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu())
+        await cq.message.edit_text(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu(cq.from_user.id))
         await bot.send_document(cq.from_user.id, BufferedInputFile(payload, filename="users_backup.json"),
                                 caption="🔒 Private user backup. Keep this file secure.")
         await cq.answer()
@@ -327,7 +331,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         data = await state.get_data()
         await state.clear()
         await bot.edit_message_text(chat_id=data["restore_chat"], message_id=data["restore_message"],
-                                    text=f"✅ Restored {len(operations)} user records.", reply_markup=menu())
+                                    text=f"✅ Restored {len(operations)} user records.", reply_markup=menu(message.from_user.id))
         try:
             await message.delete()
         except Exception:
@@ -397,13 +401,13 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await message.answer("❌ Invalid input. Follow the displayed format.")
         await state.clear()
         await bot.edit_message_text(chat_id=data["config_chat"], message_id=data["config_message"],
-                                    text=f"✅ {escape(action.title())} setting saved.", reply_markup=menu())
+                                    text=f"✅ {escape(action.title())} setting saved.", reply_markup=menu(message.from_user.id))
         try:
             await message.delete()
         except Exception:
             pass
 
-    def payment_menu():
+    def payment_menu(message.from_user.id):
         kb = InlineKeyboardBuilder()
         kb.button(text="➕ Add Payment Method", callback_data="adm_pay_add")
         kb.button(text="🗑 Remove Payment Method", callback_data="adm_pay_remove")
@@ -470,7 +474,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             f"Manual: {'🟢 ON' if manual_enabled() else '🔴 OFF'}\\n"
             f"Configured methods: {count}\\n"
             "Automatic UPI: Existing gateway settings",
-            reply_markup=payment_menu(), parse_mode="HTML")
+            reply_markup=payment_menu(cq.from_user.id), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data == "adm_pay_toggle")
@@ -538,7 +542,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await bot.edit_message_text(
             chat_id=data["pay_chat"], message_id=data["pay_message"],
             text=f"✅ Payment Method Added: <b>{escape(data['pay_name'])}</b>",
-            parse_mode="HTML", reply_markup=payment_menu())
+            parse_mode="HTML", reply_markup=payment_menu(message.from_user.id))
         try:
             await message.delete()
         except Exception:
@@ -615,7 +619,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         except Exception:
             return await cq.answer("Invalid method", show_alert=True)
         payment_methods.delete_one({"_id": oid})
-        await cq.message.edit_text("✅ Payment Method Removed", reply_markup=payment_menu())
+        await cq.message.edit_text("✅ Payment Method Removed", reply_markup=payment_menu(cq.from_user.id))
         await cq.answer()
 
     def stock_countries():
@@ -734,7 +738,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         await bot.edit_message_text(chat_id=data["single_chat"], message_id=data["single_message"],
                                     text=f"✅ Updated <code>{escape(phone)}</code> to ₹{price:.2f}",
-                                    reply_markup=menu())
+                                    reply_markup=menu(message.from_user.id))
         try:
             await message.delete()
         except Exception:
@@ -805,7 +809,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             text=(f"✅ <b>Stock Price Updated</b>\\n🌍 {escape(data['stock_country'])}\\n"
                   f"Category: {escape(data['stock_category'])}\\n📅 Year: {escape(data['stock_year'])}\\n"
                   f"💰 New price: ₹{price:.2f}\\n📦 Updated accounts: {result.modified_count}"),
-            reply_markup=menu(), parse_mode="HTML")
+            reply_markup=menu(message.from_user.id), parse_mode="HTML")
         try:
             await message.delete()
         except Exception:
@@ -849,20 +853,20 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             f"👥 Referred by: {user.get('referred_by', 'None')}\\n"
             f"🧾 Purchases: {database['orders'].count_documents({'user_id': int(value), 'status': 'purchased'})}\\n"
             f"📅 Joined: {escape(str(user.get('joined_at', user.get('created_at', 'Unknown'))))}",
-            parse_mode="HTML", reply_markup=menu()
+            parse_mode="HTML", reply_markup=menu(message.from_user.id)
         )
 
     @dp.message(Command("admin"))
     async def admin_command(message):
         if not is_admin(message.from_user.id):
             return await message.answer("❌ Not authorized.")
-        await message.answer("🛡 <b>Admin Panel</b>", reply_markup=menu())
+        await message.answer("🛡 <b>Admin Panel</b>", reply_markup=menu(message.from_user.id))
 
     @dp.callback_query(F.data == "admin_panel")
     async def admin_callback(cq):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
-        await cq.message.edit_text("🛡 <b>Advanced Admin Dashboard</b>", reply_markup=menu())
+        await cq.message.edit_text("🛡 <b>Advanced Admin Dashboard</b>", reply_markup=menu(cq.from_user.id))
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("admin_do:"))
