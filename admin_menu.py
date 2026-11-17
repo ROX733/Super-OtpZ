@@ -151,8 +151,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Owner only", show_alert=True)
         await state.set_state(SetBio.waiting)
         await state.update_data(bio_chat=cq.message.chat.id, bio_message=cq.message.message_id)
-        await cq.message.edit_text("📝 Send account phone number and new bio separated by a space.\\n"
-                                   "Example: +919876543210 Available for messages\\n"
+        await cq.message.edit_text("📝 Send account phone number and new bio separated by a space.\n"
+                                   "Example: +919876543210 Available for messages\n"
                                    "Bio will be applied to the stored Telegram session. /cancel to stop.")
         await cq.answer()
 
@@ -202,9 +202,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
         entries = list(admin_registry.find({"active": True}, {"permissions": 1}).limit(30))
-        text = "👑 <b>Manage Admins</b>\\n"
+        text = "👑 <b>Manage Admins</b>\n"
         for entry in entries:
-            text += f"\\n<code>{entry['_id']}</code>: {escape(', '.join(entry.get('permissions', [])))}"
+            text += f"\n<code>{entry['_id']}</code>: {escape(', '.join(entry.get('permissions', [])))}"
         kb = InlineKeyboardBuilder()
         kb.button(text="➕ Add / Update Admin", callback_data="adm_admin_add")
         kb.button(text="➖ Remove Admin", callback_data="adm_admin_remove")
@@ -221,10 +221,10 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.set_state(ManageAdmins.waiting)
         await state.update_data(admin_mode=mode, admin_chat=cq.message.chat.id,
                                 admin_message=cq.message.message_id)
-        prompt = ("Send: user_id permission1,permission2\\n"
+        prompt = ("Send: user_id permission1,permission2\n"
                   "Available: stock,payments,users,stats,broadcast,settings,backup,accounts"
                   if mode == "add" else "Send user_id to remove.")
-        await cq.message.edit_text("👑 " + prompt + "\\n/cancel to abort.")
+        await cq.message.edit_text("👑 " + prompt + "\n/cancel to abort.")
         await cq.answer()
 
     @dp.message(StateFilter(ManageAdmins.waiting), Command("cancel"))
@@ -271,8 +271,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         users = handlers["users_col"]
         orders = database["orders"]
         await cq.message.edit_text(
-            f"📈 <b>Bot Statistics</b>\\n👥 Users: {users.count_documents({})}\\n"
-            f"📦 Available stock: {numbers.count_documents({'used': False})}\\n"
+            f"📈 <b>Bot Statistics</b>\n👥 Users: {users.count_documents({})}\n"
+            f"📦 Available stock: {numbers.count_documents({'used': False})}\n"
             f"🧾 Purchased orders: {orders.count_documents({'status': 'purchased'})}",
             reply_markup=menu(cq.from_user.id))
         await cq.answer()
@@ -295,7 +295,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(RestoreUsers.document)
         await state.update_data(restore_chat=cq.message.chat.id, restore_message=cq.message.message_id)
-        await cq.message.edit_text("🔄 <b>Restore Users</b>\\nUpload the users_backup.json file.\\nExisting users will be updated and missing users created.\\n/cancel to abort.")
+        await cq.message.edit_text("🔄 <b>Restore Users</b>\nUpload the users_backup.json file.\nExisting users will be updated and missing users created.\n/cancel to abort.")
         await cq.answer()
 
     @dp.message(StateFilter(RestoreUsers.document), Command("cancel"))
@@ -358,7 +358,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.set_state(AdminConfigInput.waiting)
         await state.update_data(config_action=action, config_chat=cq.message.chat.id,
                                 config_message=cq.message.message_id)
-        await cq.message.edit_text(prompts[action] + "\\n/cancel to abort.")
+        await cq.message.edit_text(prompts[action] + "\n/cancel to abort.")
         await cq.answer()
 
     @dp.message(StateFilter(AdminConfigInput.waiting), Command("cancel"))
@@ -435,13 +435,13 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         lines = ["🧾 <b>Pending Manual Deposits</b>"]
         kb = InlineKeyboardBuilder()
         for entry in pending:
-            lines.append(f"\\n<code>{entry['_id']}</code> • User <code>{entry['user_id']}</code> • ₹{entry['amount']} • {escape(entry.get('status', 'pending'))}")
+            lines.append(f"\n<code>{entry['_id']}</code> • User <code>{entry['user_id']}</code> • ₹{entry['amount']} • {escape(entry.get('status', 'pending'))}")
             if entry.get("status") in ("pending", "processing"):
                 kb.button(text=f"📸 Proof {str(entry['_id'])[-6:]}",
                           callback_data=f"adm_proof:{entry['_id']}")
         kb.button(text="⬅️ Back", callback_data="admin_panel")
         kb.adjust(1)
-        await cq.message.edit_text("\\n".join(lines) if pending else "🧾 No pending deposits.",
+        await cq.message.edit_text("\n".join(lines) if pending else "🧾 No pending deposits.",
                                    reply_markup=kb.as_markup())
         await cq.answer()
 
@@ -466,7 +466,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.adjust(1)
         # Proof is a separate attachment; the admin dashboard message remains intact.
         await bot.send_photo(cq.message.chat.id, entry["proof"],
-            caption=f"🧾 Request <code>{entry['_id']}</code>\\nUser: <code>{entry['user_id']}</code>\\nAmount: ₹{entry['amount']}",
+            caption=f"🧾 Request <code>{entry['_id']}</code>\nUser: <code>{entry['user_id']}</code>\nAmount: ₹{entry['amount']}",
             reply_markup=kb.as_markup())
         await cq.answer()
 
@@ -476,10 +476,10 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         count = payment_methods.count_documents({})
         await cq.message.edit_text(
-            f"💳 <b>Manage Payment Methods</b>\\n"
-            f"Manual: {'🟢 ON' if manual_enabled() else '🔴 OFF'}\\n"
-            f"Configured methods: {count}\\n"
-            "Automatic UPI: Existing gateway settings",
+            f"💳 <b>Manage Payment Methods</b>\n\n"
+            f"<b>Manual Payments:</b> {'🟢 ON' if manual_enabled() else '🔴 OFF'}\n"
+            f"<b>Configured Methods:</b> <code>{count}</code>\n"
+            "<b>Automatic UPI:</b> Existing gateway settings",
             reply_markup=payment_menu(cq.from_user.id), parse_mode="HTML")
         await cq.answer()
 
@@ -497,7 +497,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(PaymentMethodState.name)
         await state.update_data(pay_chat=cq.message.chat.id, pay_message=cq.message.message_id)
-        await cq.message.edit_text("➕ <b>Add Payment Method</b>\\nSend payment method name (e.g. PhonePe). /cancel to stop.")
+        await cq.message.edit_text("➕ <b>Add Payment Method</b>\n\nSend payment method name (e.g. <code>PhonePe</code>).\n/cancel to stop.", parse_mode="HTML")
         await cq.answer()
 
     @dp.message(StateFilter(PaymentMethodState.name))
@@ -512,7 +512,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.set_state(PaymentMethodState.qr)
         data = await state.get_data()
         await bot.edit_message_text(chat_id=data["pay_chat"], message_id=data["pay_message"],
-                                    text="📸 Send QR image, or type skip.")
+                                    text="📸 <b>Payment QR</b>\n\nSend QR image, or type <code>skip</code>.", parse_mode="HTML")
 
     @dp.message(StateFilter(PaymentMethodState.qr))
     async def payment_qr(message, state):
@@ -529,7 +529,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.set_state(PaymentMethodState.caption)
         data = await state.get_data()
         await bot.edit_message_text(chat_id=data["pay_chat"], message_id=data["pay_message"],
-                                    text="📝 Send payment instructions / UPI ID (max 500 characters).")
+                                    text="📝 <b>Payment Instructions</b>\n\nSend payment instructions / UPI ID (max 500 characters).", parse_mode="HTML")
 
     @dp.message(StateFilter(PaymentMethodState.caption))
     async def payment_caption(message, state):
@@ -612,7 +612,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.button(text="✅ Confirm Remove", callback_data=f"adm_pay_confirm:{oid}")
         kb.button(text="❌ Cancel", callback_data="adm_pay_remove")
         kb.adjust(1)
-        await cq.message.edit_text(f"Remove <b>{escape(method['name'])}</b>?", reply_markup=kb.as_markup())
+        await cq.message.edit_text(f"🗑 <b>Remove Payment Method?</b>\n\n<code>{escape(method['name'])}</code>", reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("adm_pay_confirm:"))
@@ -659,9 +659,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb = InlineKeyboardBuilder()
         if level == 0:
             if not countries:
-                text = "📊 <b>Manage Stock</b>\\nNo available accounts."
+                text = "📊 <b>Manage Stock</b>\nNo available accounts."
             else:
-                text = "📊 <b>Manage Stock</b>\\nSelect a country:"
+                text = "📊 <b>Manage Stock</b>\nSelect a country:"
                 for i, country in enumerate(countries):
                     count = numbers.count_documents({"country": country, "used": False})
                     kb.button(text=f"🌍 {country} ({count})", callback_data=f"stk:c:{i}")
@@ -671,7 +671,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             country = countries[ci]
             cats = stock_categories(country)
             if level == 1:
-                text = f"🌍 <b>{escape(country)}</b>\\nSelect a category:"
+                text = f"🌍 <b>{escape(country)}</b>\nSelect a category:"
                 for i, cat in enumerate(cats):
                     count = numbers.count_documents(stock_filter(country, cat))
                     kb.button(text=f"{'🟢 HEALTHY' if cat == 'Good' else cat} ({count})", callback_data=f"stk:k:{ci}:{i}")
@@ -681,7 +681,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                 cat = cats[ki]
                 years = stock_years(country, cat)
                 if level == 2:
-                    text = f"🌍 {escape(country)}\\nCategory: <b>{escape(cat)}</b>\\nSelect a year:"
+                    text = f"🌍 {escape(country)}\nCategory: <b>{escape(cat)}</b>\nSelect a year:"
                     for i, year in enumerate(years):
                         count = numbers.count_documents(stock_filter(country, cat, year))
                         kb.button(text=f"📅 {year} ({count})", callback_data=f"stk:y:{ci}:{ki}:{i}")
@@ -691,9 +691,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                     year = years[yi]
                     docs = list(numbers.find(stock_filter(country, cat, year), {"price": 1}))
                     prices = sorted({str(d.get("price", "Not set")) for d in docs})
-                    text = (f"📊 <b>Stock Price Editor</b>\\n🌍 {escape(country)}\\n"
-                            f"Category: {escape(cat)}\\n📅 Year: {escape(year)}\\n"
-                            f"📦 Accounts: {len(docs)}\\n💰 Current prices: {escape(', '.join(prices[:10]))}\\n\\n"
+                    text = (f"📊 <b>Stock Price Editor</b>\n🌍 {escape(country)}\n"
+                            f"Category: {escape(cat)}\n📅 Year: {escape(year)}\n"
+                            f"📦 Accounts: {len(docs)}\n💰 Current prices: {escape(', '.join(prices[:10]))}\n\n"
                             "Change price for ALL available accounts in this category/year?")
                     kb.button(text="💰 Change Price", callback_data=f"stk:p:{ci}:{ki}:{yi}")
             kb.button(text="⬅️ Back", callback_data=("stk:home" if level == 1 else
@@ -708,8 +708,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(SingleStockPrice.waiting)
         await state.update_data(single_chat=cq.message.chat.id, single_message=cq.message.message_id)
-        await cq.message.edit_text("📞 Send a phone number to search, or phone + INR price to edit.\\n"
-                                   "Examples: +919876543210  OR  +919876543210 120\\n"
+        await cq.message.edit_text("📞 Send a phone number to search, or phone + INR price to edit.\n"
+                                   "Examples: +919876543210  OR  +919876543210 120\n"
                                    "Price edits apply only to available accounts. /cancel to abort.")
         await cq.answer()
 
@@ -737,13 +737,13 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             if not record:
                 return await message.answer("❌ No account found for that phone.")
             text = (
-                f"📞 <b>Account Search Result</b>\\n"
-                f"Phone: <code>{escape(str(record.get('number', phone)))}</code>\\n"
-                f"Country: {escape(str(record.get('country', 'Unknown')))}\\n"
-                f"Year: {escape(str(record.get('year', 'Unknown')))}\\n"
-                f"Category: {escape(str(record.get('category', 'Good')))}\\n"
-                f"Status: {escape(str(record.get('status', 'Unknown')))}\\n"
-                f"Price: ₹{escape(str(record.get('price', 'Not set')))}\\n"
+                f"📞 <b>Account Search Result</b>\n"
+                f"Phone: <code>{escape(str(record.get('number', phone)))}</code>\n"
+                f"Country: {escape(str(record.get('country', 'Unknown')))}\n"
+                f"Year: {escape(str(record.get('year', 'Unknown')))}\n"
+                f"Category: {escape(str(record.get('category', 'Good')))}\n"
+                f"Status: {escape(str(record.get('status', 'Unknown')))}\n"
+                f"Price: ₹{escape(str(record.get('price', 'Not set')))}\n"
                 f"Stock: {'Sold' if record.get('used') else 'Available'}"
             )
         else:
@@ -808,8 +808,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                                     stock_year=years[yi], stock_message_id=cq.message.message_id,
                                     stock_chat_id=cq.message.chat.id)
             await cq.message.edit_text(
-                f"💰 Enter new INR price for {escape(countries[ci])} / {escape(cats[ki])} / {escape(years[yi])}.\\n"
-                "All matching AVAILABLE accounts will be updated.\\nSend /cancel to abort.")
+                f"💰 Enter new INR price for {escape(countries[ci])} / {escape(cats[ki])} / {escape(years[yi])}.\n"
+                "All matching AVAILABLE accounts will be updated.\nSend /cancel to abort.")
         await cq.answer()
 
     @dp.message(StateFilter(StockPrice.waiting_price), Command("cancel"))
@@ -834,9 +834,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         await bot.edit_message_text(
             chat_id=data["stock_chat_id"], message_id=data["stock_message_id"],
-            text=(f"✅ <b>Stock Price Updated</b>\\n🌍 {escape(data['stock_country'])}\\n"
-                  f"Category: {escape(data['stock_category'])}\\n📅 Year: {escape(data['stock_year'])}\\n"
-                  f"💰 New price: ₹{price:.2f}\\n📦 Updated accounts: {result.modified_count}"),
+            text=(f"✅ <b>Stock Price Updated</b>\n🌍 {escape(data['stock_country'])}\n"
+                  f"Category: {escape(data['stock_category'])}\n📅 Year: {escape(data['stock_year'])}\n"
+                  f"💰 New price: ₹{price:.2f}\n📦 Updated accounts: {result.modified_count}"),
             reply_markup=menu(message.from_user.id), parse_mode="HTML")
         try:
             await message.delete()
@@ -849,7 +849,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(AdminUserLookup.waiting_id)
         await state.update_data(lookup_chat=cq.message.chat.id, lookup_message=cq.message.message_id)
-        await cq.message.edit_text("👤 Send Telegram User ID to view wallet and account details. /cancel to stop.")
+        await cq.message.edit_text("👤 <b>User Lookup</b>\n\nSend Telegram <b>User ID</b> to view wallet and account details.\n/cancel to stop.", parse_mode="HTML")
         await cq.answer()
 
     @dp.message(StateFilter(AdminUserLookup.waiting_id), Command("cancel"))
@@ -873,13 +873,13 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         await bot.edit_message_text(
             chat_id=data["lookup_chat"], message_id=data["lookup_message"],
-            text=f"👤 <b>User Info</b>\\n🆔 ID: <code>{value}</code>\\n"
-            f"Username: {escape(str(user.get('username') or 'Not set'))}\\n"
-            f"💰 Balance: ₹{float(user.get('balance') or 0):.2f}\\n"
-            f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}\\n"
-            f"🎁 Discount: {user.get('discount_percent', 0)}%\\n"
-            f"👥 Referred by: {user.get('referred_by', 'None')}\\n"
-            f"🧾 Purchases: {database['orders'].count_documents({'user_id': int(value), 'status': 'purchased'})}\\n"
+            text=f"👤 <b>User Info</b>\n🆔 ID: <code>{value}</code>\n"
+            f"Username: {escape(str(user.get('username') or 'Not set'))}\n"
+            f"💰 Balance: ₹{float(user.get('balance') or 0):.2f}\n"
+            f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}\n"
+            f"🎁 Discount: {user.get('discount_percent', 0)}%\n"
+            f"👥 Referred by: {user.get('referred_by', 'None')}\n"
+            f"🧾 Purchases: {database['orders'].count_documents({'user_id': int(value), 'status': 'purchased'})}\n"
             f"📅 Joined: {escape(str(user.get('joined_at', user.get('created_at', 'Unknown'))))}",
             parse_mode="HTML", reply_markup=menu(message.from_user.id)
         )
@@ -888,13 +888,13 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     async def admin_command(message):
         if not is_admin(message.from_user.id):
             return await message.answer("❌ Not authorized.")
-        await message.answer("🛡 <b>Admin Panel</b>", reply_markup=menu(message.from_user.id))
+        await message.answer("🛡 <b>Admin Panel</b>", reply_markup=menu(message.from_user.id), parse_mode="HTML")
 
     @dp.callback_query(F.data == "admin_panel")
     async def admin_callback(cq):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
-        await cq.message.edit_text("🛡 <b>Advanced Admin Dashboard</b>", reply_markup=menu(cq.from_user.id))
+        await cq.message.edit_text("🛡 <b>Advanced Admin Dashboard</b>", reply_markup=menu(cq.from_user.id), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("admin_do:"))
@@ -906,14 +906,14 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await state.clear()
             await state.set_state(AdminBalance.waiting_change)
             await state.update_data(balance_chat=cq.message.chat.id, balance_message=cq.message.message_id)
-            await cq.message.edit_text("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
+            await cq.message.edit_text("💰 <b>Change Balance</b>\n\nSend <b>User ID</b> and <b>amount</b> in one message:\n\n<code>1234567890 10</code> = Add ₹10\n<code>1234567890 -10</code> = Deduct ₹10\n\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
             await state.update_data(broadcast_chat=cq.message.chat.id,
                                     broadcast_message=cq.message.message_id)
             await cq.message.edit_text(
-                "📢 Send text, a photo or a video to broadcast.\\n"
-                "Optional button on its own line: BUTTON: Support | https://t.me/username\\n"
+                "📢 Send text, a photo or a video to broadcast.\n"
+                "Optional button on its own line: BUTTON: Support | https://t.me/username\n"
                 "/cancel to stop.")
         elif command in handlers:
             # Reuse existing command handlers while keeping the original
@@ -1010,8 +1010,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         action = "Deducted" if deduct else "Added"
         result_text = (
-            f"✅ Balance {action}!\\n🆔 User ID: <code>{target}</code>\\n"
-            f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\\n"
+            f"✅ Balance {action}!\n🆔 User ID: <code>{target}</code>\n"
+            f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\n"
             f"💰 New Balance: ₹{updated.get('balance', 0):.2f}"
         )
         await bot.edit_message_text(
