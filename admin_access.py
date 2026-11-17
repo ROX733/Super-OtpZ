@@ -23,12 +23,12 @@ def callback_permission(action):
     if action == "admin_panel":
         return None
     if action.startswith(("stk:", "admin_stock_info", "adm_single_price",
-                          "admin_do:setprices")):
+                          "admin_do:setprices", "admin_do:db")):
         return "stock"
     if action.startswith(("adm_pay", "adm_pending", "adm_proof:", "gw_",
                           "mr:approve:", "mr:reject:", "mr:custom:", "pay_wd:")):
         return "payments"
-    if action.startswith(("adm_stats", "admin_do:db", "livecredits:")):
+    if action.startswith(("adm_stats", "livecredits:")):
         return "stats"
     if action.startswith(("adm_backup", "adm_restore")):
         return "backup"
