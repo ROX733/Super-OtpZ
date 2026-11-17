@@ -164,9 +164,6 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             if not result.modified_count and not users.find_one(
                     {"_id": doc["user_id"], "credited_manual_deposits": str(oid)}):
                 return await cq.answer("User missing; contact owner", show_alert=True)
-            requests.update_one({"_id": oid, "status": "processing"},
-                                {"$set": {"status": "approved",
-                                          "reviewed_at": datetime.now(timezone.utc)}})
             # Referral commission is paid once per successful deposit, never per retry.
             pct_record = settings.find_one({"_id": "referral"}) or {}
             payer = users.find_one({"_id": doc["user_id"]}) or {}
@@ -184,6 +181,11 @@ def register_manual_recharge(dp, bot, db, admin_ids):
                         {"_id": referrer, "credited_referral_deposits": {"$ne": str(oid)}},
                         {"$inc": {"balance": float(reward)},
                          "$addToSet": {"credited_referral_deposits": str(oid)}})
+            # Mark completed only after both wallet and referral have settled.
+            # If processing is interrupted, approval is safely retriable.
+            requests.update_one({"_id": oid, "status": "processing"},
+                                {"$set": {"status": "approved",
+                                          "reviewed_at": datetime.now(timezone.utc)}})
             status = f"✅ Approved ₹{credit:.2f}"
         else:
             updated = requests.update_one({"_id": oid, "status": "pending"},
