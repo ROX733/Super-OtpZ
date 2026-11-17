@@ -812,14 +812,32 @@ def category_label(category, status):
             "Permanent Spam": "🔴 PERMANENT SPAM"}.get(status, str(category))
 
 
+def stock_category_counts(country_name):
+    """Aggregate stock counts in MongoDB instead of transferring every account."""
+    pipeline = [
+        {"$match": {"country": country_name, "used": False}},
+        {"$project": {
+            "category": {"$ifNull": ["$category", "Good"]},
+            "status": {"$ifNull": ["$status", None]},
+        }},
+        {"$project": {
+            "category": 1,
+            "status": {"$ifNull": [
+                "$status", {"$cond": [{"$eq": ["$category", "Good"]}, "Good", "$category"]}
+            ]},
+        }},
+        {"$group": {"_id": {"category": "$category", "status": "$status"}, "count": {"$sum": 1}}},
+        {"$sort": {"_id.category": 1, "_id.status": 1}},
+    ]
+    return {(row["_id"]["category"], row["_id"]["status"]): row["count"]
+            for row in numbers_col.aggregate(pipeline)}
+
+
 @dp.callback_query(lambda c: c.data.startswith("country:"))
 async def callback_country(cq: CallbackQuery, state: FSMContext):
     await cq.answer()
     country_name = cq.data.split(":", 1)[1]
-    groups = {}
-    for account in numbers_col.find({"country": country_name, "used": False}):
-        key = (account_category(account), account_status(account))
-        groups[key] = groups.get(key, 0) + 1
+    groups = await asyncio.to_thread(stock_category_counts, country_name)
     await state.update_data(buy_country=country_name, buy_categories=list(groups), selected_stock=None)
     kb = InlineKeyboardBuilder()
     for index, ((category, status), count) in enumerate(groups.items()):
