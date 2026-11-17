@@ -576,17 +576,17 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         pending = list(database["manual_deposits"].find(
             {"status": {"$in": ["pending", "processing"]}}).sort("created_at", -1).limit(20))
-        lines = ["🧾 <b>Pending Manual Deposits</b>"]
+        lines = ["🧾 <b>Pending Manual Deposits</b>", ""]
         kb = InlineKeyboardBuilder()
         for entry in pending:
-            lines.append(f"\n<code>{entry['_id']}</code> • User <code>{entry['user_id']}</code> • ₹{entry['amount']} • {escape(entry.get('status', 'pending'))}")
+            lines.append(f"🧾 <b>Deposit ID:</b> <code>{entry.get('deposit_id', str(entry['_id']))}</code>\n👤 <b>User:</b> <code>{entry['user_id']}</code>\n💰 <b>Amount:</b> ₹{entry['amount']}\n⏳ <b>Status:</b> {escape(entry.get('status', 'pending'))}\n")
             if entry.get("status") in ("pending", "processing"):
-                kb.button(text=f"📸 Proof {str(entry['_id'])[-6:]}",
+                kb.button(text=f"📸 Proof #{entry.get('deposit_id', str(entry['_id'])[-6:])}",
                           callback_data=f"adm_proof:{entry['_id']}")
         kb.button(text="⬅️ Back", callback_data="admin_panel")
         kb.adjust(1)
         await cq.message.edit_text("\n".join(lines) if pending else "🧾 No pending deposits.",
-                                   reply_markup=kb.as_markup())
+                                   reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("adm_proof:"))
@@ -610,8 +610,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb.adjust(1)
         # Proof is a separate attachment; the admin dashboard message remains intact.
         await bot.send_photo(cq.message.chat.id, entry["proof"],
-            caption=f"🧾 Request <code>{entry['_id']}</code>\nUser: <code>{entry['user_id']}</code>\nAmount: ₹{entry['amount']}",
-            reply_markup=kb.as_markup())
+            caption=f"🧾 <b>Deposit ID:</b> <code>{entry.get('deposit_id', str(entry['_id']))}</code>\n👤 <b>User:</b> <code>{entry['user_id']}</code>\n💰 <b>Amount:</b> ₹{entry['amount']}",
+            reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data == "adm_payments")
@@ -708,7 +708,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                       callback_data=f"adm_pay_switch:{method['_id']}")
         kb.button(text="⬅️ Back", callback_data="adm_payments")
         kb.adjust(1)
-        await cq.message.edit_text("🔘 Tap a payment method to enable/disable:", reply_markup=kb.as_markup())
+        await cq.message.edit_text("🔘 <b>Payment Methods</b>\n\nTap a method to enable or disable it.", reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("adm_pay_switch:"))
@@ -717,7 +717,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         from bson import ObjectId
         try:
-            oid = ObjectId(cq.data.split(":")[2])
+            oid = ObjectId(cq.data.partition(":")[2])
         except Exception:
             return await cq.answer("Invalid method", show_alert=True)
         method = payment_methods.find_one({"_id": oid})
@@ -736,8 +736,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             kb.button(text=f"🗑 {method['name']}", callback_data=f"adm_pay_del:{method['_id']}")
         kb.button(text="⬅️ Back", callback_data="adm_payments")
         kb.adjust(1)
-        await cq.message.edit_text("🗑 Select method to remove:" if methods else "No manual payment methods.",
-                                   reply_markup=kb.as_markup())
+        await cq.message.edit_text("🗑 <b>Remove Payment Method</b>\n\nSelect a method:" if methods else "ℹ️ <b>No manual payment methods configured.</b>",
+                                   reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data.startswith("adm_pay_del:"))
