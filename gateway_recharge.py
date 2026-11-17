@@ -209,12 +209,6 @@ def register_gateway(dp, bot, db, admin_ids):
             if not credited:
                 return await cq.message.answer("Wallet unavailable; contact support.")
 
-            # Complete pending records even if a previous attempt crashed after
-            # applying the user credit but before setting the order paid.
-            payments.update_one({"_id": order_id, "status": "pending"}, {
-                "$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}
-            })
-
             # A separate idempotency marker permits safe recovery if payment
             # credit succeeded but referral processing previously failed.
             config = (db["admin_settings"].find_one({"_id": "referral"}) or {})
@@ -233,6 +227,11 @@ def register_gateway(dp, bot, db, admin_ids):
                         {"_id": referrer, "credited_referral_gateway_orders": {"$ne": order_id}},
                         {"$inc": {"balance": float(reward)},
                          "$addToSet": {"credited_referral_gateway_orders": order_id}})
+            # Finalize only after wallet and referral settlement have completed.
+            # Retrying a pending order uses the credit markers instead of double-crediting.
+            payments.update_one({"_id": order_id, "status": "pending"}, {
+                "$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}
+            })
             try:
                 await cq.message.delete()
             except Exception:
