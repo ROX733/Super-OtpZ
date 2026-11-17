@@ -19,6 +19,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
     requests = db["manual_deposits"]
     users = db["users"]
     settings = db["admin_settings"]
+    counters = db["deposit_counters"]
 
     def enabled():
         return bool((settings.find_one({"_id": "manual_payments"}) or {}).get("enabled", False))
@@ -114,6 +115,11 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         doc = {"user_id": message.from_user.id, "amount": data["amount"], "method_id": data["method_id"],
                "method_name": method["name"], "proof": message.photo[-1].file_id,
                "status": "pending", "created_at": datetime.now(timezone.utc)}
+        # Atomic counter guarantees unique sequential IDs across concurrent deposits.
+        counter = counters.find_one_and_update(
+            {"_id": "manual_deposit"}, {"$inc": {"seq": 1}},
+            upsert=True, return_document=ReturnDocument.AFTER)
+        doc["deposit_id"] = counter["seq"]
         rid = requests.insert_one(doc).inserted_id
         kb = InlineKeyboardBuilder()
         kb.button(text=f"✅ Accept ₹{data['amount']}", callback_data=f"mr:approve:{rid}")
@@ -121,7 +127,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         kb.button(text="📝 Custom Amount", callback_data=f"mr:custom:{rid}")
         kb.adjust(1)
         caption = (f"🆕 <b>NEW DEPOSIT REQUEST</b>\\n"
-                   f"ID: <code>{rid}</code>\\nUser: <code>{message.from_user.id}</code>\\n"
+                   f"Deposit ID: <code>{doc['deposit_id']}</code>\\nUser: <code>{message.from_user.id}</code>\\n"
                    f"Amount: ₹{data['amount']}\\nMethod: {escape(method['name'])}")
         delivered = 0
         for uid in admin_ids:
@@ -131,7 +137,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             except Exception:
                 pass
         await state.clear()
-        await message.answer(f"✅ Deposit request submitted. Reference: <code>{rid}</code>. Await admin review.")
+        await message.answer(f"✅ <b>Deposit Request Submitted</b>\\n\\n🧾 <b>Deposit ID:</b> <code>{doc['deposit_id']}</code>\\n⏳ <b>Status:</b> Pending admin review.", parse_mode="HTML")
         if not delivered:
             await message.answer("⚠️ Admin notification unavailable. Contact support with your reference.")
 
