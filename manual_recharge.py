@@ -141,6 +141,32 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         if not delivered:
             await message.answer("⚠️ Admin notification unavailable. Contact support with your reference.")
 
+    async def announce_approved_deposit(oid):
+        # Atomic claim prevents duplicate channel posts from repeated approvals.
+        record = requests.find_one_and_update(
+            {"_id": oid, "status": "approved", "public_notice": {"$exists": False}},
+            {"$set": {"public_notice": "sending"}},
+            return_document=ReturnDocument.AFTER)
+        if not record:
+            return
+        try:
+            value = money(record.get("approved_amount", record["amount"]))
+            method = methods.find_one({"_id": record.get("method_id")}) or {}
+            label = escape(str(record.get("method_name") or method.get("name") or "Manual Payment"))
+            await bot.send_message(
+                "@SuperOtpZOfficial",
+                "🎉 <b>NEW DEPOSIT SUCCESSFUL</b>\n\n"
+                f"🆔 <b>Deposit ID:</b> <code>{record.get('deposit_id', '—')}</code>\n"
+                f"💰 <b>Amount:</b> ₹{value:.2f}\n"
+                f"💳 <b>Method:</b> {label}\n"
+                "✅ <b>Status:</b> Successful", parse_mode="HTML")
+        except Exception:
+            requests.update_one({"_id": oid, "public_notice": "sending"},
+                                {"$unset": {"public_notice": ""}})
+        else:
+            requests.update_one({"_id": oid, "public_notice": "sending"},
+                                {"$set": {"public_notice": "sent"}})
+
     async def settle(cq, rid, approved, amount=None):
         try:
             oid = ObjectId(rid)
@@ -192,6 +218,7 @@ def register_manual_recharge(dp, bot, db, admin_ids):
             requests.update_one({"_id": oid, "status": "processing"},
                                 {"$set": {"status": "approved",
                                           "reviewed_at": datetime.now(timezone.utc)}})
+            await announce_approved_deposit(oid)
             status = f"✅ Approved ₹{credit:.2f}"
         else:
             updated = requests.update_one({"_id": oid, "status": "pending"},
