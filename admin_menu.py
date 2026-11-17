@@ -88,7 +88,6 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             ("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON", "admin_toggle_maintenance"),
             ("➕ Add Single Acc", "admin_do:add"),
             ("📊 Manage Stock", "admin_stock_info"),
-            ("📞 Search / Price Account", "adm_single_price"),
             ("💰 Set Account Prices", "admin_do:setprices"),
             ("📈 Statistics", "adm_stats"),
             ("📢 Broadcast", "admin_do:broadcast"),
@@ -103,7 +102,6 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             ("📝 Set Bio", "adm_setbio"),
             ("💳 Payments", "adm_payments"),
             ("🧾 Pending Deposits", "adm_pending"),
-            ("➖ Remove Number", "admin_do:remove"),
             ("👑 Manage Admins", "adm_admins"),
         ]
         visible = []
