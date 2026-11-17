@@ -181,6 +181,13 @@ def is_admin(user_id: int) -> bool:
 def has_admin_permission(user_id: int, permission: str) -> bool:
     return authorized(user_id, ADMIN_IDS, db["subadmins"], permission)
 
+def can_access_number(user_id: int, account: dict | None) -> bool:
+    if not account:
+        return False
+    if has_admin_permission(user_id, "accounts"):
+        return True
+    return bool(account.get("used") and account.get("reserved_by") == user_id)
+
 def get_user_balance(user_id):
     user = users_col.find_one({"_id": user_id})
     return user.get("balance", 0) if user else 0
@@ -388,6 +395,8 @@ async def otp_listener(number_doc, user_id, message_id):
 async def manage_devices(call: CallbackQuery):
     number = call.data.split(":", 1)[1]
     doc = numbers_col.find_one({"number": number})
+    if not can_access_number(call.from_user.id, doc):
+        return await call.answer("❌ Account access denied.", show_alert=True)
 
     if not doc or not doc.get("string_session"):
         return await call.answer("❌ No active session", show_alert=True)
@@ -437,6 +446,8 @@ async def manage_devices(call: CallbackQuery):
 async def kill_session(call: CallbackQuery):
     _, number, session_hash = call.data.split(":")
     doc = numbers_col.find_one({"number": number})
+    if not can_access_number(call.from_user.id, doc):
+        return await call.answer("❌ Account access denied.", show_alert=True)
 
     api_id = int(os.getenv("API_ID"))
     api_hash = os.getenv("API_HASH")
@@ -462,6 +473,8 @@ async def kill_session(call: CallbackQuery):
 async def logout_bot(call: CallbackQuery):
     number = call.data.split(":", 1)[1]
     doc = numbers_col.find_one({"number": number})
+    if not can_access_number(call.from_user.id, doc):
+        return await call.answer("❌ Account access denied.", show_alert=True)
 
     if not doc or not doc.get("string_session"):
         return await call.answer("❌ No active session", show_alert=True)
@@ -1754,6 +1767,8 @@ async def finalize_sell(msg: Message, state: FSMContext, phone, string_session, 
 
 @dp.callback_query(F.data.startswith("get_sell_otp:"))
 async def callback_get_sell_otp(cq: CallbackQuery):
+    if not has_admin_permission(cq.from_user.id, "accounts"):
+        return await cq.answer("❌ Not authorized.", show_alert=True)
     phone = cq.data.split(":")[1]
     
     # 1. Fetch Session from DB
@@ -1836,8 +1851,8 @@ async def callback_get_otp(cq: CallbackQuery):
     phone = cq.data.split(":")[1]
 
     number_doc = numbers_col.find_one({"number": phone})
-    if not number_doc:
-        return await cq.answer("❌ Number session not found.", show_alert=True)
+    if not can_access_number(cq.from_user.id, number_doc):
+        return await cq.answer("❌ Account access denied.", show_alert=True)
 
     await cq.answer("Waiting for OTP.....")
 
