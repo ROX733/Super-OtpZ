@@ -431,7 +431,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         kb = InlineKeyboardBuilder()
         for entry in pending:
             lines.append(f"\\n<code>{entry['_id']}</code> • User <code>{entry['user_id']}</code> • ₹{entry['amount']} • {escape(entry.get('status', 'pending'))}")
-            if entry.get("status") == "pending":
+            if entry.get("status") in ("pending", "processing"):
                 kb.button(text=f"📸 Proof {str(entry['_id'])[-6:]}",
                           callback_data=f"adm_proof:{entry['_id']}")
         kb.button(text="⬅️ Back", callback_data="admin_panel")
@@ -453,7 +453,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Request missing", show_alert=True)
         kb = InlineKeyboardBuilder()
         if entry.get("status") == "pending":
-            kb.button(text="✅ Approve", callback_data=f"mr:approve:{entry['_id']}")
+            kb.button(text=("🔄 Finish Approval" if entry.get("status") == "processing" else "✅ Approve"), callback_data=f"mr:approve:{entry['_id']}")
             kb.button(text="❌ Reject", callback_data=f"mr:reject:{entry['_id']}")
             kb.button(text="📝 Custom Amount", callback_data=f"mr:custom:{entry['_id']}")
         kb.button(text="⬅️ Pending", callback_data="adm_pending")
