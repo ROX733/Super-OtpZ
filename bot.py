@@ -1867,58 +1867,98 @@ async def callback_get_otp(cq: CallbackQuery):
         # --- 2. Admin: Approve Sell ---
 @dp.callback_query(F.data.startswith("approve_sell:"))
 async def callback_approve_sell(cq: CallbackQuery):
-    if not is_admin(cq.from_user.id):
+    if not has_admin_permission(cq.from_user.id, "accounts"):
         return await cq.answer("❌ Not authorized.", show_alert=True)
+    try:
+        _, raw_uid, phone, raw_price = cq.data.split(":")
+        user_id, price = int(raw_uid), int(raw_price)
+        if not 0 < user_id < 10**16 or not 0 < price <= 100000:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return await cq.answer("Invalid submission", show_alert=True)
 
-    _, user_id, phone, price = cq.data.split(":")
-    user_id, price = int(user_id), int(price)
+    # A single admin message corresponds to one review. Both reject and approve
+    # race through the same unique decision record, preventing contrary outcomes.
+    review_id = f"{cq.message.chat.id}:{cq.message.message_id}"
+    decision = db["sell_review_decisions"].find_one_and_update(
+        {"_id": review_id},
+        {"$setOnInsert": {"status": "approved", "user_id": user_id,
+                          "phone": phone, "price": price,
+                          "reviewed_by": cq.from_user.id}},
+        upsert=True, return_document=ReturnDocument.AFTER
+    )
+    if decision.get("status") != "approved":
+        return await cq.answer("This submission was already rejected.", show_alert=True)
+    if (decision.get("user_id") != user_id or
+            decision.get("phone") != phone or decision.get("price") != price):
+        return await cq.answer("Review details mismatch.", show_alert=True)
 
-    # Add Balance
-    users_col.update_one({"_id": user_id}, {"$inc": {"balance": price}})
+    # Idempotent credit: even concurrent callbacks or retries credit just once.
+    updated = users_col.update_one(
+        {"_id": user_id, "credited_sell_reviews": {"$ne": review_id}},
+        {"$inc": {"balance": price}, "$addToSet": {"credited_sell_reviews": review_id}}
+    )
+    if not updated.modified_count:
+        if not users_col.find_one({"_id": user_id, "credited_sell_reviews": review_id}):
+            return await cq.answer("User not found. Contact owner.", show_alert=True)
+        return await cq.answer("Already approved and credited.", show_alert=True)
 
-    # Edit Admin Message
     await cq.message.edit_text(
-        cq.message.text + f"\n\n✅ <b>Approved by {cq.from_user.first_name}</b>",
+        (cq.message.text or "") + f"\\n\\n✅ <b>Approved by {html.escape(cq.from_user.first_name)}</b>",
         parse_mode="HTML"
     )
-
-    # Notify User with Withdraw Button
     kb = InlineKeyboardBuilder()
     kb.button(text="💸 Withdraw Now", callback_data="init_withdraw")
-    
-    await bot.send_message(
-        user_id,
-        f"🎉 <b>Account Approved!</b>\n\n"
-        f"✅ Account: <code>{phone}</code>\n"
-        f"💰 Added: ₹{price}\n\n"
-        f"You can withdraw this amount to your UPI immediately.",
-        reply_markup=kb.as_markup(),
-        parse_mode="HTML"
-    )
+    try:
+        await bot.send_message(
+            user_id,
+            f"🎉 <b>Account Approved!</b>\\n\\n"
+            f"✅ Account: <code>{html.escape(phone)}</code>\\n"
+            f"💰 Added: ₹{price}\\n\\n"
+            "You can withdraw this amount to your UPI.",
+            reply_markup=kb.as_markup(), parse_mode="HTML"
+        )
+    except Exception:
+        pass
     await cq.answer("✅ Approved & Balance Added.")
 
-# --- 3. Admin: Reject Sell ---
 @dp.callback_query(F.data.startswith("reject_sell:"))
 async def callback_reject_sell(cq: CallbackQuery):
-    if not is_admin(cq.from_user.id):
-        return await cq.answer("❌ Not authorized.")
-
-    _, user_id, phone = cq.data.split(":")
-    user_id = int(user_id)
-
+    if not has_admin_permission(cq.from_user.id, "accounts"):
+        return await cq.answer("❌ Not authorized.", show_alert=True)
+    try:
+        _, raw_uid, phone = cq.data.split(":")
+        user_id = int(raw_uid)
+        if not 0 < user_id < 10**16:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return await cq.answer("Invalid submission", show_alert=True)
+    review_id = f"{cq.message.chat.id}:{cq.message.message_id}"
+    decision = db["sell_review_decisions"].find_one_and_update(
+        {"_id": review_id},
+        {"$setOnInsert": {"status": "rejected", "user_id": user_id,
+                          "phone": phone, "reviewed_by": cq.from_user.id}},
+        upsert=True, return_document=ReturnDocument.AFTER
+    )
+    if decision.get("status") != "rejected":
+        return await cq.answer("Already approved.", show_alert=True)
+    if decision.get("user_id") != user_id or decision.get("phone") != phone:
+        return await cq.answer("Review details mismatch.", show_alert=True)
     await cq.message.edit_text(
-        cq.message.text + f"\n\n❌ <b>Rejected by {cq.from_user.first_name}</b>",
+        (cq.message.text or "") + f"\\n\\n❌ <b>Rejected by {html.escape(cq.from_user.first_name)}</b>",
         parse_mode="HTML"
     )
-    
-    await bot.send_message(
-        user_id,
-        f"⚠️ <b>Account Rejected</b>\n\nYour submission for <code>{phone}</code> was declined by the admin.",
-        parse_mode="HTML"
-    )
+    try:
+        await bot.send_message(
+            user_id,
+            f"⚠️ <b>Account Rejected</b>\\n\\n"
+            f"Your submission for <code>{html.escape(phone)}</code> was declined by the admin.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
     await cq.answer("❌ Request Rejected.")
-    
-    
+
     # --- User clicks Withdraw ---
 @dp.callback_query(F.data == "init_withdraw")
 async def start_withdraw(cq: CallbackQuery, state: FSMContext):
