@@ -407,7 +407,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             "discount": "👤 <b>User ID:</b>\n\nSend <i>/cancel</i> only if you want to abort.",
             "ref": "👥 <b>New Referral %:</b>\n\nSend <i>/cancel</i> only if you want to abort.",
             "support": "🔗 <b>Enter new Support URL (HTTPS URL or <code>@username</code>):</b>\n\nSend <i>/cancel</i> only if you want to abort.",
-            "ban": "🚫 <b>Ban / Unban</b>\n\nSend <code>123456789 ban</code> or <code>123456789 unban</code>.\n<i>/cancel</i> to abort."
+            "ban": "🚫 <b>Ban / Unban User</b>\n\nSend User ID and action:\n<code>123456789 ban</code>\n<code>123456789 unban</code>\n\nSend <i>/cancel</i> only if you want to abort."
         }
         if action not in prompts:
             return await cq.answer("Invalid action", show_alert=True)
@@ -463,21 +463,48 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                 parse_mode="HTML")
             return
         try:
-            if action in ("discount", "ban"):
-                uid, parameter = value.split()
-                if not uid.isascii() or not uid.isdecimal() or not 0 < int(uid) < 10**16:
+            if action == "ban":
+                parts = value.split()
+                if len(parts) != 2:
                     raise ValueError()
-                if action == "discount":
-                    pct = Decimal(parameter)
-                    if not pct.is_finite() or not 0 <= pct <= 100 or pct.as_tuple().exponent < -2:
-                        raise ValueError()
-                    result = handlers["users_col"].update_one({"_id": int(uid)}, {"$set": {"discount_percent": float(pct)}})
-                else:
-                    if parameter not in ("ban", "unban"):
-                        raise ValueError()
-                    result = handlers["users_col"].update_one({"_id": int(uid)}, {"$set": {"banned": parameter == "ban"}})
+                uid_text, parameter = parts
+                parameter = parameter.lower()
+                if (not uid_text.isascii() or not uid_text.isdecimal()
+                        or not 0 < int(uid_text) < 10**16
+                        or parameter not in ("ban", "unban")):
+                    raise ValueError()
+                target_uid = int(uid_text)
+                if target_uid == message.from_user.id:
+                    return await message.answer(
+                        "❌ <b>You cannot ban or unban yourself.</b>", parse_mode="HTML")
+                if is_admin(target_uid):
+                    return await message.answer(
+                        "🛡 <b>Protected account.</b> Admins and the owner cannot be banned or unbanned here.",
+                        parse_mode="HTML")
+                target = handlers["users_col"].find_one({"_id": target_uid}, {"banned": 1})
+                if target is None:
+                    return await message.answer(
+                        f"❌ <b>User <code>{target_uid}</code> not found.</b>", parse_mode="HTML")
+                requested_ban = parameter == "ban"
+                if bool(target.get("banned", False)) == requested_ban:
+                    return await message.answer(
+                        f"ℹ️ User <code>{target_uid}</code> is already "
+                        f"{'banned' if requested_ban else 'unbanned'}.",
+                        parse_mode="HTML")
+                # Recheck admin status immediately before writing; do not rely on UI checks.
+                if is_admin(target_uid):
+                    return await message.answer("🛡 <b>Protected admin account.</b>", parse_mode="HTML")
+                result = handlers["users_col"].update_one(
+                    {"_id": target_uid, "banned": target.get("banned", False)},
+                    {"$set": {"banned": requested_ban}})
                 if not result.matched_count:
-                    return await message.answer("❌ User not found.")
+                    return await message.answer(
+                        "⚠️ User status changed during the request. Please retry.")
+                await state.clear()
+                return await message.answer(
+                    f"{'🚫' if requested_ban else '✅'} <b>User <code>{target_uid}</code> "
+                    f"{'banned' if requested_ban else 'unbanned'} successfully.</b>",
+                    parse_mode="HTML")
             elif action == "ref":
                 pct = Decimal(value)
                 if not pct.is_finite() or not 0 <= pct <= 100 or pct.as_tuple().exponent < -2:
