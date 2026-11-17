@@ -961,7 +961,7 @@ async def callback_process_purchase(cq: CallbackQuery, state: FSMContext):
                    / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
     debit = users_col.update_one({"_id": user_id, "balance": {"$gte": price}},
                                  {"$inc": {"balance": -price}})
-    if not debit.modified_count:
+    if not debit.matched_count:
         numbers_col.update_one({"_id": number_doc["_id"], "reserved_by": user_id},
                                {"$set": {"used": False}, "$unset": {"reserved_by": ""}})
         return await cq.message.answer("❌ Insufficient balance.")
