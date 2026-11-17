@@ -860,6 +860,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if command == "changebalance":
             await state.clear()
             await state.set_state(AdminBalance.waiting_change)
+            await state.update_data(balance_chat=cq.message.chat.id, balance_message=cq.message.message_id)
             await cq.message.edit_text("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
@@ -944,13 +945,18 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         )
         if not updated:
             return await message.answer("❌ User not found or insufficient balance.")
+        data = await state.get_data()
         await state.clear()
         action = "Deducted" if deduct else "Added"
-        await message.answer(
+        result_text = (
             f"✅ Balance {action}!\\n🆔 User ID: <code>{target}</code>\\n"
             f"{'➖' if deduct else '➕'} {action}: ₹{abs(amount):.2f}\\n"
-            f"💰 New Balance: ₹{updated.get('balance', 0):.2f}",
-            parse_mode="HTML"
+            f"💰 New Balance: ₹{updated.get('balance', 0):.2f}"
+        )
+        await bot.edit_message_text(
+            chat_id=data["balance_chat"], message_id=data["balance_message"],
+            text=result_text, parse_mode="HTML",
+            reply_markup=menu(message.from_user.id)
         )
         try:
             await bot.send_message(target, f"💰 Admin {action.lower()} ₹{abs(amount):.2f} {'from' if deduct else 'to'} your wallet.")
