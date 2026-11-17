@@ -18,7 +18,7 @@ class IntegrationSafetyTests(unittest.TestCase):
     def test_manual_recharge_registration(self):
         bot = self.source("bot.py")
         self.assertIn("register_manual_recharge(dp, bot, db, ADMIN_IDS)", bot)
-        self.assertIn('action == "gw_recharge" or action.startswith("gw_check:")', bot)
+        self.assertIn('action in self.USER_GATEWAY_ACTIONS or action.startswith("gw_check:")', bot)
 
     def test_manual_credit_idempotency(self):
         source = self.source("manual_recharge.py")
@@ -88,6 +88,8 @@ class IntegrationSafetyTests(unittest.TestCase):
         admin = self.source("admin_menu.py")
         self.assertIn("discount_percent", bot)
         self.assertIn("get_support_url()", bot)
+        self.assertIn("def can_access_number(", bot)
+        self.assertIn('"credited_sell_reviews": {"$ne": review_id}', bot)
         for action in ("adm_restore", "adm_setbio", "adm_admins",
                        "adm_single_price", "adm_pay_methods", "adm_pay_toggle"):
             with self.subTest(action=action):
