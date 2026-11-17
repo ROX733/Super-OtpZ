@@ -1054,6 +1054,9 @@ async def callback_add_country(cq: CallbackQuery, state: FSMContext):
 
 @dp.message(AddSession.waiting_number)
 async def add_number_get_code(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     country = data["country"]
     phone = msg.text.strip()
@@ -1085,6 +1088,9 @@ async def finish_account_login(msg, state, string_session, password=None):
 
 @dp.message(AddSession.waiting_otp)
 async def add_number_verify_code(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     client = TelegramClient(StringSession(data["session"]), int(os.getenv("API_ID")), os.getenv("API_HASH"))
     await client.connect()
@@ -1104,6 +1110,9 @@ async def add_number_verify_code(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_password)
 async def add_number_with_password(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     client = TelegramClient(StringSession(data["session"]), int(os.getenv("API_ID")), os.getenv("API_HASH"))
     await client.connect()
@@ -1122,6 +1131,9 @@ async def add_number_with_password(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_year)
 async def add_account_year(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     value = msg.text.strip()
     year = int(value) if value.isdigit() else None
     if year is not None and not (2013 <= year <= datetime.now(timezone.utc).year):
@@ -1135,6 +1147,9 @@ async def add_account_year(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_status_confirm)
 async def add_account_status(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     value = msg.text.strip().lower()
     mapping = {"good": "Good", "healthy": "Good", "temporary spam": "Temporary Spam", "permanent spam": "Permanent Spam"}
     if value not in mapping:
@@ -1152,6 +1167,9 @@ async def add_account_status(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_category)
 async def add_account_category(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     category = data["status"] if msg.text.strip().lower() == "default" else msg.text.strip()
     if not category or len(category) > 40:
@@ -1163,6 +1181,9 @@ async def add_account_category(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_price)
 async def add_account_price(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     try:
         price = float(msg.text.strip())
         if not (0 < price < 1000000):
@@ -1201,6 +1222,9 @@ async def add_account_price(msg: Message, state: FSMContext):
 
 @dp.message(AddSession.waiting_next_action)
 async def add_next_number_or_cancel(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     text = msg.text.strip()
 
     if text.lower() == "cancel":
@@ -1264,6 +1288,9 @@ async def callback_remove_country(cq: CallbackQuery, state: FSMContext):
 
 @dp.message(RemoveSession.waiting_number)
 async def remove_number(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "accounts"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     country = data["country"]
     phone = msg.text.strip()
@@ -1400,6 +1427,9 @@ async def cmd_set_prices(msg: Message, state: FSMContext):
 
 @dp.message(StateFilter(SetPrices.waiting_list))
 async def handle_set_prices(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "stock"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     text = msg.text.strip()
     
     # IMPROVED REGEX EXPLANATION:
@@ -1986,6 +2016,9 @@ async def admin_approve_withdraw(cq: CallbackQuery, state: FSMContext):
 # --- Admin sends TXN ID ---
 @dp.message(StateFilter(AdminTxnState.waiting_txn))
 async def admin_finalize_withdraw(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "payments"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     txn_id = msg.text.strip()
     data = await state.get_data()
     req_id = data.get('req_id')
@@ -2095,6 +2128,9 @@ async def callback_edit_change_name(cq: CallbackQuery, state: FSMContext):
 
 @dp.message(StateFilter(EditCountry.waiting_new_name))
 async def handle_new_country_name(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "settings"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     old_name = data.get("country_name")
     new_name = msg.text.strip()
@@ -2114,6 +2150,9 @@ async def callback_edit_change_price(cq: CallbackQuery, state: FSMContext):
 
 @dp.message(StateFilter(EditCountry.waiting_new_price))
 async def handle_new_country_price(msg: Message, state: FSMContext):
+    if not has_admin_permission(msg.from_user.id, "settings"):
+        await state.clear()
+        return await msg.answer("❌ Not authorized.")
     data = await state.get_data()
     country_name = data.get("country_name")
     try:
