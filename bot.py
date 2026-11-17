@@ -1381,7 +1381,7 @@ async def callback_remove_country(cq: CallbackQuery):
 
 @dp.message(Command("db"))
 async def cmd_db(msg: Message):
-    if not has_admin_permission(msg.from_user.id, "stats"):
+    if not has_admin_permission(msg.from_user.id, "stock"):
         return await msg.answer("❌ Not authorized.")
 
     countries = list(countries_col.find({}))
