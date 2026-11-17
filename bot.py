@@ -173,7 +173,7 @@ class AdminTxnState(StatesGroup):
 
 # ================ Helpers =================
 def get_or_create_user(user_id: int, username: str | None):
-    user = await asyncio.to_thread(users_col.find_one, {"_id": user_id}, {"balance": 1})
+    user = users_col.find_one({"_id": user_id})
     if not user:
         user = {"_id": user_id, "username": username or None, "balance": 0.0,
                 "joined_at": datetime.now(timezone.utc)}
@@ -566,7 +566,7 @@ async def cmd_start(m: Message):
     full_name = m.from_user.full_name  # always use the name
     safe_name = escape(full_name)
     user_mention = f"<a href='tg://user?id={user_id}'>{safe_name}</a>"
-    user = users_col.find_one({"_id": user_id})
+    user = await asyncio.to_thread(users_col.find_one, {"_id": user_id}, {"balance": 1})
     balance = f"₹{user['balance']:.2f} " if user else "₹0 "
     
 # ================= Main Start Menu =================
