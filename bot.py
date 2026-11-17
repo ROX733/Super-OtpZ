@@ -175,7 +175,8 @@ class AdminTxnState(StatesGroup):
 def get_or_create_user(user_id: int, username: str | None):
     user = users_col.find_one({"_id": user_id})
     if not user:
-        user = {"_id": user_id, "username": username or None, "balance": 0.0}
+        user = {"_id": user_id, "username": username or None, "balance": 0.0,
+                "joined_at": datetime.now(timezone.utc)}
         users_col.insert_one(user)
     return user
 
@@ -529,70 +530,38 @@ async def cmd_start(m: Message):
         except:
             referred_by = None
 
-    # Check if user already exists
-    user = users_col.find_one({"_id": m.from_user.id})
-
-    if user:
-        # Existing user
-        if is_ref_link:
-            # Notify referrer if this user was referred just now
-            if "referred_by" not in user and referred_by and referred_by != m.from_user.id:
-                users_col.update_one({"_id": m.from_user.id}, {"$set": {"referred_by": referred_by}})
-                
-                # Notify the referrer
-                try:
-                    ref_user = users_col.find_one({"_id": referred_by})
-                    if ref_user:
-                        await bot.send_message(
-                            chat_id=referred_by,
-                            text=(
-                                f"👋 <b>New Referral!</b>\n"
-                                f"@{m.from_user.username or m.from_user.full_name} just started the bot using your referral link.\n\n"
-                                f"💰 You’ll now earn <b>2%</b> whenever they add balance!"
-                            ),
-                            parse_mode="HTML"
-                        )
-                except Exception as e:
-                    print("Referral notify error:", e)
-
-            await m.answer("🌟")
-        else:
-            
-            user_data = {
-                "_id": m.from_user.id,
-                "username": m.from_user.username or None,
-                "balance": 0.0,
-                "joined_at": datetime.now(timezone.utc),
-            }
-            
-            if referred_by and referred_by != m.from_user.id:
-                user_data["referred_by"] = referred_by
-                users_col.insert_one(user_data)
-                
-                await m.answer("you have been counted in New Users list! .")
-
-        # Notify referrer if user was referred
-        if referred_by and referred_by != m.from_user.id:
-            try:
-                ref_user = users_col.find_one({"_id": referred_by})
-                if ref_user:
-                    await bot.send_message(
-                        chat_id=referred_by,
-                        text=(
-                            f"👋 <b>New Referral!</b>\n"
-                            f"@{m.from_user.username or m.from_user.full_name} just started the bot using your referral link.\n\n"
-                            f"💰 You’ll earn <b>2%</b> whenever they add balance!"
-                        ),
-                        parse_mode="HTML"
-                    )
-            except Exception as e:
-                print("Referral notify error:", e)
-
     if not await check_join(bot, m):
         return
 
-    # Ensure user exists in DB
+    # Upsert once, then set the referrer only if it has never been assigned.
+    # MongoDB's conditional update avoids duplicate bonuses/notifications when
+    # /start is pressed repeatedly or two referral links are opened concurrently.
     get_or_create_user(m.from_user.id, m.from_user.username)
+    if referred_by and referred_by != m.from_user.id:
+        valid_referrer = users_col.find_one({"_id": referred_by}, {"_id": 1})
+        if valid_referrer:
+            linked = users_col.update_one(
+                {"_id": m.from_user.id, "referred_by": {"$exists": False}},
+                {"$set": {"referred_by": referred_by}}
+            )
+            if linked.modified_count:
+                config = db["admin_settings"].find_one({"_id": "referral"}) or {}
+                try:
+                    configured_percent = float(config.get("percent", 0))
+                    if not 0 <= configured_percent <= 100:
+                        configured_percent = 0
+                except (TypeError, ValueError):
+                    configured_percent = 0
+                try:
+                    await bot.send_message(
+                        referred_by,
+                        f"👥 New referral: {html.escape(m.from_user.full_name)} "
+                        f"joined using your link. Deposit commission: "
+                        f"{configured_percent:g}%.",
+                    )
+                except Exception:
+                    pass
+
     user_id = m.from_user.id
     full_name = m.from_user.full_name  # always use the name
     safe_name = escape(full_name)
