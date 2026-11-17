@@ -914,7 +914,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(AdminUserLookup.waiting_id)
         await state.update_data(lookup_chat=cq.message.chat.id, lookup_message=None)
-        sent = await cq.message.answer("👤 <b>User Lookup</b>\n\nSend Telegram <b>User ID</b> to view wallet and account details.\n/cancel to stop.", parse_mode="HTML")
+        sent = await cq.message.answer("👤 <b>Enter User ID:</b>\n\nSend <i>/cancel</i> only if you want to abort.", parse_mode="HTML")
         await state.update_data(lookup_message=sent.message_id)
         await cq.answer()
 
@@ -934,20 +934,39 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         user = handlers["users_col"].find_one({"_id": int(value)})
         if not user:
             return await message.answer("❌ User not found.")
+        from decimal import Decimal
         from html import escape
+        uid = int(value)
+        orders = list(database["orders"].find(
+            {"user_id": uid, "status": "purchased"}, {"price": 1}))
+        spent = sum((Decimal(str(o.get("price") or 0)) for o in orders), Decimal("0"))
+        gateway = list(database["gateway_payments"].find(
+            {"user_id": uid, "status": "paid"}, {"amount": 1}))
+        upi = sum((Decimal(str(p.get("amount") or 0)) for p in gateway), Decimal("0"))
+        manual = list(database["manual_deposits"].find(
+            {"user_id": uid, "status": "approved"}, {"amount": 1, "approved_amount": 1}))
+        manual_total = sum(
+            (Decimal(str(p.get("approved_amount", p.get("amount")) or 0)) for p in manual),
+            Decimal("0"))
+        deposited = upi + manual_total
+        joined = user.get("joined_at", user.get("created_at"))
+        joined_text = joined.strftime("%Y-%m-%d %H:%M:%S") if hasattr(joined, "strftime") else str(joined or "Unknown")
         data = await state.get_data()
         await state.clear()
         await bot.edit_message_text(
             chat_id=data["lookup_chat"], message_id=data["lookup_message"],
-            text=f"👤 <b>User Info</b>\n🆔 ID: <code>{value}</code>\n"
-            f"Username: {escape(str(user.get('username') or 'Not set'))}\n"
-            f"💰 Balance: ₹{float(user.get('balance') or 0):.2f}\n"
-            f"🚫 Banned: {'Yes' if user.get('banned') else 'No'}\n"
-            f"🎁 Discount: {user.get('discount_percent', 0)}%\n"
-            f"👥 Referred by: {user.get('referred_by', 'None')}\n"
-            f"🧾 Purchases: {database['orders'].count_documents({'user_id': int(value), 'status': 'purchased'})}\n"
-            f"📅 Joined: {escape(str(user.get('joined_at', user.get('created_at', 'Unknown'))))}",
-            parse_mode="HTML", reply_markup=menu(message.from_user.id)
+            text=(
+                f"👤 <b>USER INFO:</b> <code>{uid}</code>\n\n"
+                f"💰 <b>Balance:</b> ₹{Decimal(str(user.get('balance') or 0)):g}\n"
+                f"💳 <b>Total Deposited:</b> ₹{deposited:g}\n"
+                f"🏦 <b>UPI Deposited:</b> ₹{upi:g}\n"
+                f"🛒 <b>Total Orders:</b> <code>{len(orders)}</code>\n"
+                f"💵 <b>Total Spent:</b> ₹{spent:g}\n"
+                f"🎁 <b>Discount:</b> {Decimal(str(user.get('discount_percent') or 0)):g}%\n"
+                f"📅 <b>Joined:</b> <code>{escape(joined_text)}</code>\n"
+                f"{'🔴' if user.get('banned') else '🟢'} <b>Banned:</b> {'Yes' if user.get('banned') else 'No'}"
+            ),
+            parse_mode="HTML"
         )
 
     @dp.message(Command("admin"))
