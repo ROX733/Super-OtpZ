@@ -407,7 +407,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         except Exception:
             pass
 
-    def payment_menu(message.from_user.id):
+    def payment_menu(uid=None):
         kb = InlineKeyboardBuilder()
         kb.button(text="➕ Add Payment Method", callback_data="adm_pay_add")
         kb.button(text="🗑 Remove Payment Method", callback_data="adm_pay_remove")
