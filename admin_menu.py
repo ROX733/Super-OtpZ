@@ -434,8 +434,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not entry:
             return await cq.answer("Request missing", show_alert=True)
         kb = InlineKeyboardBuilder()
-        if entry.get("status") == "pending":
+        if entry.get("status") in ("pending", "processing"):
             kb.button(text=("🔄 Finish Approval" if entry.get("status") == "processing" else "✅ Approve"), callback_data=f"mr:approve:{entry['_id']}")
+        if entry.get("status") == "pending":
             kb.button(text="❌ Reject", callback_data=f"mr:reject:{entry['_id']}")
             kb.button(text="📝 Custom Amount", callback_data=f"mr:custom:{entry['_id']}")
         kb.button(text="⬅️ Pending", callback_data="adm_pending")
@@ -864,9 +865,20 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await state.set_state(AdminBroadcast.waiting_message)
             await cq.message.edit_text("📢 Send the message to broadcast. /cancel to stop.")
         elif command in handlers:
-            # Callback messages are authored by the bot. Override the sender for
-            # the existing command handler's authorization check.
-            msg = cq.message.model_copy(update={"from_user": cq.from_user})
+            # Reuse existing command handlers while keeping the original
+            # admin panel message (rather than sending a second navigation message).
+            class PanelMessageProxy:
+                def __init__(self, source, sender):
+                    self._source = source
+                    self.from_user = sender
+
+                def __getattr__(self, key):
+                    return getattr(self._source, key)
+
+                async def answer(self, text, **kwargs):
+                    return await self._source.edit_text(text, **kwargs)
+
+            msg = PanelMessageProxy(cq.message, cq.from_user)
             handler = handlers[command]
             if command in {"db", "removecountry"}:
                 await handler(msg)
