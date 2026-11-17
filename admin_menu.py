@@ -106,11 +106,20 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             ("🧾 Pending Deposits", "adm_pending"),
             ("➖ Remove Number", "admin_do:remove"),
         ]
+        visible = []
         for label, action in actions:
             if uid in admin_ids or (uid is not None and action not in ("adm_admins", "adm_setbio") and is_admin(uid, permission_for(action))):
                 kb.button(text=label, callback_data=action)
+                visible.append(action)
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
-        kb.adjust(1)
+        # Two buttons per row; maintenance and Back remain full-width.
+        widths = [1]
+        middle = len(visible) - (1 if "admin_toggle_maintenance" in visible else 0)
+        widths.extend([2] * (middle // 2))
+        if middle % 2:
+            widths.append(1)
+        widths.append(1)
+        kb.adjust(*widths)
         return kb.as_markup()
 
     @dp.callback_query(F.data == "admin_toggle_maintenance")
