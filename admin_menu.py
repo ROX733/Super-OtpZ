@@ -150,10 +150,11 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
         await state.set_state(SetBio.waiting)
-        await state.update_data(bio_chat=cq.message.chat.id, bio_message=cq.message.message_id)
-        await cq.message.edit_text("📝 Send account phone number and new bio separated by a space.\n"
+        await state.update_data(bio_chat=cq.message.chat.id, bio_message=None)
+        sent = await cq.message.answer("📝 Send account phone number and new bio separated by a space.\n"
                                    "Example: +919876543210 Available for messages\n"
                                    "Bio will be applied to the stored Telegram session. /cancel to stop.")
+        await state.update_data(bio_message=sent.message_id)
         await cq.answer()
 
     @dp.message(StateFilter(SetBio.waiting), Command("cancel"))
@@ -284,7 +285,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         users = list(handlers["users_col"].find({}))
         from bson import json_util
         payload = json_util.dumps(users, ensure_ascii=False, indent=2).encode("utf-8")
-        await cq.message.edit_text(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu(cq.from_user.id))
+        await cq.message.answer(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu(cq.from_user.id))
         await bot.send_document(cq.from_user.id, BufferedInputFile(payload, filename="users_backup.json"),
                                 caption="🔒 Private user backup. Keep this file secure.")
         await cq.answer()
@@ -294,8 +295,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(RestoreUsers.document)
-        await state.update_data(restore_chat=cq.message.chat.id, restore_message=cq.message.message_id)
-        await cq.message.edit_text("🔄 <b>Restore Users</b>\nUpload the users_backup.json file.\nExisting users will be updated and missing users created.\n/cancel to abort.")
+        await state.update_data(restore_chat=cq.message.chat.id, restore_message=None)
+        sent = await cq.message.answer("🔄 <b>Restore Users</b>\nUpload the users_backup.json file.\nExisting users will be updated and missing users created.\n/cancel to abort.")
+        await state.update_data(restore_message=sent.message_id)
         await cq.answer()
 
     @dp.message(StateFilter(RestoreUsers.document), Command("cancel"))
@@ -357,8 +359,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Invalid action", show_alert=True)
         await state.set_state(AdminConfigInput.waiting)
         await state.update_data(config_action=action, config_chat=cq.message.chat.id,
-                                config_message=cq.message.message_id)
-        await cq.message.edit_text(prompts[action] + "\n/cancel to abort.")
+                                config_message=None)
+        sent = await cq.message.answer(prompts[action] + "\n/cancel to abort.")
+        await state.update_data(config_message=sent.message_id)
         await cq.answer()
 
     @dp.message(StateFilter(AdminConfigInput.waiting), Command("cancel"))
@@ -848,8 +851,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(AdminUserLookup.waiting_id)
-        await state.update_data(lookup_chat=cq.message.chat.id, lookup_message=cq.message.message_id)
-        await cq.message.edit_text("👤 <b>User Lookup</b>\n\nSend Telegram <b>User ID</b> to view wallet and account details.\n/cancel to stop.", parse_mode="HTML")
+        await state.update_data(lookup_chat=cq.message.chat.id, lookup_message=None)
+        sent = await cq.message.answer("👤 <b>User Lookup</b>\n\nSend Telegram <b>User ID</b> to view wallet and account details.\n/cancel to stop.", parse_mode="HTML")
+        await state.update_data(lookup_message=sent.message_id)
         await cq.answer()
 
     @dp.message(StateFilter(AdminUserLookup.waiting_id), Command("cancel"))
@@ -905,16 +909,18 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if command == "changebalance":
             await state.clear()
             await state.set_state(AdminBalance.waiting_change)
-            await state.update_data(balance_chat=cq.message.chat.id, balance_message=cq.message.message_id)
-            await cq.message.edit_text("💰 <b>Change Balance</b>\n\nSend <b>User ID</b> and <b>amount</b> in one message:\n\n<code>1234567890 10</code> = Add ₹10\n<code>1234567890 -10</code> = Deduct ₹10\n\n/cancel to stop.", parse_mode="HTML")
+            await state.update_data(balance_chat=cq.message.chat.id, balance_message=None)
+            sent = await cq.message.answer("💰 <b>Change Balance</b>\n\nSend <b>User ID</b> and <b>amount</b> in one message:\n\n<code>1234567890 10</code> = Add ₹10\n<code>1234567890 -10</code> = Deduct ₹10\n\n/cancel to stop.", parse_mode="HTML")
+            await state.update_data(balance_message=sent.message_id)
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
             await state.update_data(broadcast_chat=cq.message.chat.id,
-                                    broadcast_message=cq.message.message_id)
-            await cq.message.edit_text(
+                                    broadcast_message=None)
+            sent = await cq.message.answer(
                 "📢 Send text, a photo or a video to broadcast.\n"
                 "Optional button on its own line: BUTTON: Support | https://t.me/username\n"
                 "/cancel to stop.")
+            await state.update_data(broadcast_message=sent.message_id)
         elif command in handlers:
             # Reuse existing command handlers while keeping the original
             # admin panel message (rather than sending a second navigation message).
@@ -927,7 +933,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                     return getattr(self._source, key)
 
                 async def answer(self, text, **kwargs):
-                    return await self._source.edit_text(text, **kwargs)
+                    return await (self._source.answer(text, **kwargs) if command == "add" else self._source.edit_text(text, **kwargs))
 
             msg = PanelMessageProxy(cq.message, cq.from_user)
             handler = handlers[command]
