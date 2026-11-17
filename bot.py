@@ -22,7 +22,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from aiogram.utils.deep_linking import create_start_link
