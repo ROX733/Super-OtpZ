@@ -322,7 +322,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                 # Never restore payment-credit markers from an external file:
                 # those are ledger invariants that must remain monotonic.
                 clean = {k: v for k, v in entry.items()
-                         if k not in ("_id", "credited_manual_deposits", "credited_gateway_orders")}
+                         if k not in ("_id", "credited_manual_deposits", "credited_gateway_orders", "credited_referral_deposits", "credited_referral_gateway_orders")}
                 operations.append(UpdateOne({"_id": entry["_id"]}, {"$set": clean}, upsert=True))
         except (ValueError, UnicodeError, TypeError, KeyError):
             return await message.answer("❌ Invalid backup format. Nothing restored.")
