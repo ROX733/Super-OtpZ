@@ -8,6 +8,7 @@ from html import escape
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from admin_access import authorized, callback_permission
 
 ACTIONS = [
     ("💰 Set Sell Prices", "setprices"),
@@ -53,29 +54,10 @@ class AdminBroadcast(StatesGroup):
 def register_admin_panel(dp, bot, admin_ids, handlers):
     admin_registry = handlers["users_col"].database["subadmins"]
     def is_admin(uid, permission=None):
-        if uid in admin_ids:
-            return True
-        sub = admin_registry.find_one({"_id": uid, "active": True})
-        return bool(sub and (permission is None or permission in sub.get("permissions", [])))
+        return authorized(uid, admin_ids, admin_registry, permission)
 
     def permission_for(action):
-        if action in ("admin_panel",):
-            return None
-        if action.startswith(("stk:", "admin_stock_info", "adm_single_price", "admin_do:setprices")):
-            return "stock"
-        if action.startswith(("adm_pay", "adm_pending", "adm_proof:", "gw_")):
-            return "payments"
-        if action.startswith(("adm_stats", "admin_do:db")):
-            return "stats"
-        if action.startswith(("adm_backup", "adm_restore")):
-            return "backup"
-        if action.startswith(("admin_user_lookup", "adm_config:ban", "adm_config:discount", "admin_do:changebalance")):
-            return "users"
-        if action.startswith(("admin_do:broadcast",)):
-            return "broadcast"
-        if action.startswith(("admin_do:add", "admin_do:remove")):
-            return "accounts"
-        return "settings"
+        return callback_permission(action)
 
     class AdminPermissionMiddleware:
         async def __call__(self, handler, event, data):
