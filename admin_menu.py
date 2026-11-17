@@ -685,9 +685,9 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         await state.set_state(SingleStockPrice.waiting)
         await state.update_data(single_chat=cq.message.chat.id, single_message=cq.message.message_id)
-        await cq.message.edit_text("📞 Send phone number and new price (INR).\\n"
-                                   "Example: +919876543210 120\\n"
-                                   "This updates one matching available account. /cancel to abort.")
+        await cq.message.edit_text("📞 Send a phone number to search, or phone + INR price to edit.\\n"
+                                   "Examples: +919876543210  OR  +919876543210 120\\n"
+                                   "Price edits apply only to available accounts. /cancel to abort.")
         await cq.answer()
 
     @dp.message(StateFilter(SingleStockPrice.waiting), Command("cancel"))
@@ -701,26 +701,48 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await state.clear()
             return
         import re
+        from pymongo import ReturnDocument
         parts = (message.text or "").strip().split()
-        if len(parts) != 2 or not re.fullmatch(r"\\+?[0-9]{8,15}", parts[0]):
-            return await message.answer("❌ Format: phone_number price")
-        try:
-            price = Decimal(parts[1])
-            if not price.is_finite() or not Decimal("0.01") <= price <= Decimal("100000") or price.as_tuple().exponent < -2:
-                raise InvalidOperation()
-        except (InvalidOperation, ValueError):
-            return await message.answer("❌ Invalid INR price.")
+        if len(parts) not in (1, 2) or not re.fullmatch(r"\\+?[0-9]{8,15}", parts[0]):
+            return await message.answer("❌ Format: phone_number [optional_price]")
         phone = parts[0].lstrip("+")
-        record = numbers.find_one_and_update(
-            {"number": {"$in": [phone, "+" + phone]}, "used": False},
-            {"$set": {"price": float(price)}},
-            return_document=__import__("pymongo").ReturnDocument.AFTER)
-        if not record:
-            return await message.answer("❌ Available account not found.")
+        lookup = {"number": {"$in": [phone, "+" + phone]}}
         data = await state.get_data()
+        if len(parts) == 1:
+            record = numbers.find_one(lookup, {"number": 1, "country": 1,
+                "year": 1, "category": 1, "status": 1, "price": 1, "used": 1})
+            if not record:
+                return await message.answer("❌ No account found for that phone.")
+            text = (
+                f"📞 <b>Account Search Result</b>\\n"
+                f"Phone: <code>{escape(str(record.get('number', phone)))}</code>\\n"
+                f"Country: {escape(str(record.get('country', 'Unknown')))}\\n"
+                f"Year: {escape(str(record.get('year', 'Unknown')))}\\n"
+                f"Category: {escape(str(record.get('category', 'Good')))}\\n"
+                f"Status: {escape(str(record.get('status', 'Unknown')))}\\n"
+                f"Price: ₹{escape(str(record.get('price', 'Not set')))}\\n"
+                f"Stock: {'Sold' if record.get('used') else 'Available'}"
+            )
+        else:
+            try:
+                price = Decimal(parts[1])
+                if (not price.is_finite() or
+                        not Decimal("0.01") <= price <= Decimal("100000") or
+                        price.as_tuple().exponent < -2):
+                    raise InvalidOperation()
+            except (InvalidOperation, ValueError):
+                return await message.answer("❌ Invalid INR price.")
+            record = numbers.find_one_and_update(
+                dict(lookup, used=False), {"$set": {"price": float(price)}},
+                return_document=ReturnDocument.AFTER
+            )
+            if not record:
+                return await message.answer("❌ Available account not found.")
+            text = f"✅ Updated <code>{escape(phone)}</code> to ₹{price:.2f}"
+
         await state.clear()
-        await bot.edit_message_text(chat_id=data["single_chat"], message_id=data["single_message"],
-                                    text=f"✅ Updated <code>{escape(phone)}</code> to ₹{price:.2f}",
+        await bot.edit_message_text(chat_id=data["single_chat"],
+                                    message_id=data["single_message"], text=text,
                                     reply_markup=menu(message.from_user.id))
         try:
             await message.delete()
