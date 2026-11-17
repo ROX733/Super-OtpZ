@@ -623,7 +623,7 @@ async def cmd_start(m: Message):
         ]
        
     ])
-    if is_admin(m.from_user.id):
+    if is_admin(m.from_user.id) or db["subadmins"].find_one({"_id": m.from_user.id, "active": True}):
         kb.inline_keyboard.append([InlineKeyboardButton(text="🛡 Admin Panel", callback_data="admin_panel")])
     await m.answer(caption, parse_mode="HTML", reply_markup=kb)
 
