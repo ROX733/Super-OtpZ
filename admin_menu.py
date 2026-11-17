@@ -864,7 +864,12 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await cq.message.edit_text("💳 Send User ID and amount in one message:\\n<code>1234567890 10 -</code> = Add ₹10\\n<code>1234567890 -10</code> = Deduct ₹10\\n/cancel to stop.", parse_mode="HTML")
         elif command == "broadcast":
             await state.set_state(AdminBroadcast.waiting_message)
-            await cq.message.edit_text("📢 Send the message to broadcast. /cancel to stop.")
+            await state.update_data(broadcast_chat=cq.message.chat.id,
+                                    broadcast_message=cq.message.message_id)
+            await cq.message.edit_text(
+                "📢 Send text, a photo or a video to broadcast.\\n"
+                "Optional button on its own line: BUTTON: Support | https://t.me/username\\n"
+                "/cancel to stop.")
         elif command in handlers:
             # Reuse existing command handlers while keeping the original
             # admin panel message (rather than sending a second navigation message).
@@ -902,9 +907,20 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if not is_admin(message.from_user.id, "broadcast"):
             await state.clear()
             return
+        panel = await state.get_data()
         await state.clear()
-        await message.answer("📢 Broadcasting...")
-        await handlers["broadcast_panel"](message)
+        await bot.edit_message_text(chat_id=panel["broadcast_chat"],
+                                    message_id=panel["broadcast_message"],
+                                    text="📢 Broadcast in progress...")
+        result = await handlers["broadcast_panel"](message)
+        if result is None:
+            text = "❌ Broadcast cancelled: access revoked."
+        else:
+            sent, failed = result
+            text = f"✅ Broadcast complete: {sent} sent, {failed} failed."
+        await bot.edit_message_text(chat_id=panel["broadcast_chat"],
+                                    message_id=panel["broadcast_message"],
+                                    text=text, reply_markup=menu(message.from_user.id))
 
     @dp.message(StateFilter(AdminBalance.waiting_change), Command("cancel"))
     async def cancel_balance(message: Message, state):
