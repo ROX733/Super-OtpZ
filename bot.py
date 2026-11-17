@@ -82,7 +82,7 @@ class BanCheckMiddleware(BaseMiddleware):
     ) -> Any:
         user = data.get("event_from_user")
         if user:
-            user_doc = users_col.find_one({"_id": user.id})
+            user_doc = await asyncio.to_thread(users_col.find_one, {"_id": user.id}, {"banned": 1})
             if user_doc and user_doc.get("banned", False):
                 # If event is a message, reply. If callback, answer alert.
                 if isinstance(event, Message):
@@ -173,7 +173,7 @@ class AdminTxnState(StatesGroup):
 
 # ================ Helpers =================
 def get_or_create_user(user_id: int, username: str | None):
-    user = users_col.find_one({"_id": user_id})
+    user = await asyncio.to_thread(users_col.find_one, {"_id": user_id}, {"balance": 1})
     if not user:
         user = {"_id": user_id, "username": username or None, "balance": 0.0,
                 "joined_at": datetime.now(timezone.utc)}
@@ -536,7 +536,7 @@ async def cmd_start(m: Message):
     # Upsert once, then set the referrer only if it has never been assigned.
     # MongoDB's conditional update avoids duplicate bonuses/notifications when
     # /start is pressed repeatedly or two referral links are opened concurrently.
-    get_or_create_user(m.from_user.id, m.from_user.username)
+    await asyncio.to_thread(get_or_create_user, m.from_user.id, m.from_user.username)
     if referred_by and referred_by != m.from_user.id:
         valid_referrer = users_col.find_one({"_id": referred_by}, {"_id": 1})
         if valid_referrer:
