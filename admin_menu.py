@@ -269,13 +269,46 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     async def admin_statistics(cq):
         if not is_admin(cq.from_user.id):
             return await cq.answer("Not authorized", show_alert=True)
+        from decimal import Decimal
         users = handlers["users_col"]
         orders = database["orders"]
+        available = numbers.count_documents({"used": False})
+        categories = {}
+        for doc in numbers.aggregate([
+            {"$match": {"used": False}},
+            {"$group": {"_id": "$category", "count": {"$sum": 1}}}
+        ]):
+            name = str(doc["_id"] or "Good")
+            categories[name] = categories.get(name, 0) + doc["count"]
+        category_text = " / ".join(
+            f"{escape(name)} {count}" for name, count in sorted(categories.items())
+        )
+        stock_line = f"📦 <b>Accounts in Stock:</b> <code>{available}</code>"
+        if category_text:
+            stock_line += f" ({category_text})"
+        balance_result = list(users.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": "$balance"}}}
+        ]))
+        total_balance = balance_result[0]["total"] if balance_result else 0
+        sales_result = list(orders.aggregate([
+            {"$match": {"status": "purchased"}},
+            {"$group": {"_id": None, "count": {"$sum": 1}, "total": {"$sum": "$price"}}}
+        ]))
+        sold = sales_result[0]["count"] if sales_result else 0
+        sales_amount = sales_result[0]["total"] if sales_result else 0
+        paid = database["gateway_payments"].find({"status": "paid"}, {"amount": 1})
+        upi_revenue = sum((Decimal(str(p.get("amount") or 0)) for p in paid), Decimal("0"))
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⬅️ Back", callback_data="admin_panel")
         await cq.message.edit_text(
-            f"📈 <b>Bot Statistics</b>\n👥 Users: {users.count_documents({})}\n"
-            f"📦 Available stock: {numbers.count_documents({'used': False})}\n"
-            f"🧾 Purchased orders: {orders.count_documents({'status': 'purchased'})}",
-            reply_markup=menu(cq.from_user.id))
+            "📊 <b>ADVANCED STATS</b>\n\n"
+            f"👥 <b>Total Users:</b> <code>{users.count_documents({})}</code>\n"
+            f"{stock_line}\n"
+            f"💰 <b>Total UPI Revenue:</b> ₹{upi_revenue:g}\n\n"
+            f"💳 <b>Overall Users Balance:</b> ₹{total_balance:g}\n"
+            f"🛒 <b>Total Accounts Sold:</b> <code>{sold}</code>\n"
+            f"💵 <b>Overall Sales Amount:</b> ₹{sales_amount:g}",
+            reply_markup=kb.as_markup(), parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data == "adm_backup")
