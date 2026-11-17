@@ -2974,7 +2974,7 @@ async def panel_broadcast(message):
     if not (is_admin(message.from_user.id) or
             (lambda a: bool(a and a.get("active") and "broadcast" in a.get("permissions", [])))(
                 db["subadmins"].find_one({"_id": message.from_user.id}))):
-        return
+        return None
     # Text, photo and video are copied without losing formatting/media.
     # Optional URL buttons: append a line "BUTTON: Label | https://example.com".
     import re
@@ -2997,7 +2997,7 @@ async def panel_broadcast(message):
             sent += 1
         except Exception:
             failed += 1
-    await message.answer(f"Broadcast complete: {sent} sent, {failed} failed.")
+    return sent, failed
 
 register_admin_panel(dp, bot, ADMIN_IDS, {
     "setprices": cmd_set_prices,
