@@ -157,6 +157,28 @@ def register_gateway(dp, bot, db, admin_ids):
             pass
         await cq.message.answer(f"❌ QR Expired\nOrder ID: <code>{order_id}</code>")
 
+    async def announce_paid_order(order_id):
+        record = payments.find_one_and_update(
+            {"_id": order_id, "status": "paid", "public_notice": {"$exists": False}},
+            {"$set": {"public_notice": "sending"}},
+            return_document=ReturnDocument.AFTER)
+        if not record:
+            return
+        try:
+            await bot.send_message(
+                "@SuperOtpZOfficial",
+                "🎉 <b>NEW DEPOSIT SUCCESSFUL</b>\n\n"
+                f"🆔 <b>Deposit ID:</b> <code>{record.get('deposit_id', order_id)}</code>\n"
+                f"💰 <b>Amount:</b> ₹{Decimal(str(record['amount'])):.2f}\n"
+                "💳 <b>Method:</b> UPI Automatic\n"
+                "✅ <b>Status:</b> Successful", parse_mode="HTML")
+        except Exception:
+            payments.update_one({"_id": order_id, "public_notice": "sending"},
+                                {"$unset": {"public_notice": ""}})
+        else:
+            payments.update_one({"_id": order_id, "public_notice": "sending"},
+                                {"$set": {"public_notice": "sent"}})
+
     @dp.callback_query(F.data.startswith("gw_check:"))
     async def verify_recharge(cq):
         await cq.answer()
@@ -165,6 +187,7 @@ def register_gateway(dp, bot, db, admin_ids):
         if not order:
             return await cq.message.answer("Order not found.")
         if order.get("status") == "paid":
+            await announce_paid_order(order_id)
             return await cq.message.answer("✅ Payment Received")
         if order.get("status") == "expired":
             return await cq.message.answer(f"❌ QR Expired\nOrder ID: <code>{order_id}</code>")
@@ -232,6 +255,7 @@ def register_gateway(dp, bot, db, admin_ids):
             payments.update_one({"_id": order_id, "status": "pending"}, {
                 "$set": {"status": "paid", "paid_at": datetime.now(timezone.utc)}
             })
+            await announce_paid_order(order_id)
             try:
                 await cq.message.delete()
             except Exception:
