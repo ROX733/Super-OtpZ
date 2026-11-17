@@ -100,21 +100,23 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             ("🚫 Ban / Unban", "adm_config:ban"),
             ("💾 Backup Users", "adm_backup"),
             ("🔄 Restore Users", "adm_restore"),
-            ("👑 Manage Admins", "adm_admins"),
             ("📝 Set Bio", "adm_setbio"),
             ("💳 Payments", "adm_payments"),
             ("🧾 Pending Deposits", "adm_pending"),
             ("➖ Remove Number", "admin_do:remove"),
+            ("👑 Manage Admins", "adm_admins"),
         ]
         visible = []
         for label, action in actions:
             if uid in admin_ids or (uid is not None and action not in ("adm_admins", "adm_setbio") and is_admin(uid, permission_for(action))):
+                if action == "adm_admins":
+                    continue  # Owner-only button gets its own final row.
                 kb.button(text=label, callback_data=action)
                 visible.append(action)
+        if uid in admin_ids:
+            kb.button(text="👑 Manage Admins", callback_data="adm_admins")
         kb.button(text="⬅️ Back to Menu", callback_data="back_main")
-        # Mixed dashboard: full-width status, a couple of paired rows,
-        # a full-width feature, then paired rows again.
-        # Only visible buttons are counted, so subadmin layouts remain valid.
+        # Mixed layout, with Manage Admins and Back each full-width at bottom.
         pattern = [1, 2, 2, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2]
         widths = []
         remaining = len(visible)
@@ -128,6 +130,8 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             take = min(2, remaining)
             widths.append(take)
             remaining -= take
+        if uid in admin_ids:
+            widths.append(1)  # Manage Admins
         widths.append(1)  # Back to Menu
         kb.adjust(*widths)
         return kb.as_markup()
