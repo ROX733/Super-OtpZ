@@ -311,30 +311,41 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
 
     @dp.callback_query(F.data == "adm_backup")
     async def admin_backup(cq):
-        if not is_admin(cq.from_user.id):
+        if not is_admin(cq.from_user.id, "backup"):
             return await cq.answer("Not authorized", show_alert=True)
-        users = list(handlers["users_col"].find({}))
+        import csv
+        from io import StringIO
         from bson import json_util
-        payload = json_util.dumps(users, ensure_ascii=False, indent=2).encode("utf-8")
-        await cq.message.answer(f"💾 Users backup prepared: {len(users)} records.", reply_markup=menu(cq.from_user.id))
-        await bot.send_document(cq.from_user.id, BufferedInputFile(payload, filename="users_backup.json"),
-                                caption="🔒 Private user backup. Keep this file secure.")
+        output = StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["user_id", "user_data_json"])
+        count = 0
+        for user in handlers["users_col"].find({}):
+            writer.writerow([user["_id"], json_util.dumps(user, ensure_ascii=False)])
+            count += 1
+        payload = output.getvalue().encode("utf-8-sig")
+        await bot.send_document(
+            cq.from_user.id, BufferedInputFile(payload, filename="users_backup.csv"),
+            caption="👥 <b>Users Backup CSV</b>", parse_mode="HTML")
         await cq.answer()
 
     @dp.callback_query(F.data == "adm_restore")
     async def restore_start(cq, state):
-        if not is_admin(cq.from_user.id):
+        if not is_admin(cq.from_user.id, "backup"):
             return await cq.answer("Not authorized", show_alert=True)
+        if cq.message.chat.type != "private":
+            return await cq.answer("Restore is available in private chat only.", show_alert=True)
         await state.set_state(RestoreUsers.document)
-        await state.update_data(restore_chat=cq.message.chat.id, restore_message=None)
-        sent = await cq.message.answer("🔄 <b>Restore Users</b>\nUpload the users_backup.json file.\nExisting users will be updated and missing users created.\n/cancel to abort.")
-        await state.update_data(restore_message=sent.message_id)
+        await cq.message.answer(
+            "📤 <b>Send the <code>users_backup.csv</code> file:</b>\n\n"
+            "Send <i>/cancel</i> only if you want to abort.",
+            parse_mode="HTML")
         await cq.answer()
 
     @dp.message(StateFilter(RestoreUsers.document), Command("cancel"))
     async def restore_cancel(message, state):
         await state.clear()
-        await message.answer("Restore cancelled.")
+        await message.answer("❌ <b>Cancelled.</b>", parse_mode="HTML")
 
     @dp.message(StateFilter(RestoreUsers.document))
     async def restore_document(message, state):
@@ -342,38 +353,50 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             await state.clear()
             return
         doc = message.document
-        if not doc or not doc.file_name.endswith(".json") or doc.file_size > 5_000_000:
-            return await message.answer("❌ Upload a JSON backup under 5 MB.")
-        from io import BytesIO
+        if not doc or not (doc.file_name or "").lower().endswith(".csv") or not doc.file_size or doc.file_size > 10_000_000:
+            return await message.answer("❌ Upload a CSV backup under 10 MB.")
+        import csv
+        from io import BytesIO, StringIO
         from bson import json_util
         from pymongo import UpdateOne
         stream = BytesIO()
         await bot.download(doc, destination=stream)
         try:
-            entries = json_util.loads(stream.getvalue().decode("utf-8"))
-            if not isinstance(entries, list) or len(entries) > 100000:
-                raise ValueError()
+            decoded = stream.getvalue().decode("utf-8-sig")
+            reader = csv.DictReader(StringIO(decoded))
+            if reader.fieldnames != ["user_id", "user_data_json"]:
+                raise ValueError("Invalid backup headers")
             operations = []
-            for entry in entries:
-                if not isinstance(entry, dict) or not isinstance(entry.get("_id"), int):
-                    raise ValueError()
-                # Never restore payment-credit markers from an external file:
-                # those are ledger invariants that must remain monotonic.
-                clean = {k: v for k, v in entry.items()
-                         if k not in ("_id", "credited_manual_deposits", "credited_gateway_orders", "credited_referral_deposits", "credited_referral_gateway_orders")}
-                operations.append(UpdateOne({"_id": entry["_id"]}, {"$set": clean}, upsert=True))
-        except (ValueError, UnicodeError, TypeError, KeyError):
-            return await message.answer("❌ Invalid backup format. Nothing restored.")
-        if operations:
-            handlers["users_col"].bulk_write(operations, ordered=False)
-        data = await state.get_data()
-        await state.clear()
-        await bot.edit_message_text(chat_id=data["restore_chat"], message_id=data["restore_message"],
-                                    text=f"✅ Restored {len(operations)} user records.", reply_markup=menu(message.from_user.id))
+            seen = set()
+            protected = {
+                "credited_manual_deposits", "credited_gateway_orders",
+                "credited_referral_deposits", "credited_referral_gateway_orders"
+            }
+            for row in reader:
+                if len(operations) >= 100000 or None in row or any(v is None for v in row.values()):
+                    raise ValueError("Malformed CSV")
+                uid_text = row["user_id"]
+                if not uid_text.isascii() or not uid_text.isdecimal():
+                    raise ValueError("Invalid ID")
+                uid = int(uid_text)
+                if uid <= 0 or uid in seen:
+                    raise ValueError("Duplicate/invalid ID")
+                seen.add(uid)
+                entry = json_util.loads(row["user_data_json"])
+                if not isinstance(entry, dict) or type(entry.get("_id")) is not int or entry["_id"] != uid:
+                    raise ValueError("Invalid user record")
+                clean = {k: v for k, v in entry.items() if k != "_id" and k not in protected}
+                operations.append(UpdateOne({"_id": uid}, {"$set": clean}, upsert=True))
+            if not operations:
+                raise ValueError("Empty backup")
+        except (ValueError, UnicodeError, TypeError, KeyError, csv.Error):
+            return await message.answer("❌ <b>Invalid backup CSV.</b> Nothing restored.", parse_mode="HTML")
         try:
-            await message.delete()
+            handlers["users_col"].bulk_write(operations, ordered=False)
         except Exception:
-            pass
+            return await message.answer("❌ <b>Restore failed.</b> Some records may have been updated; check the database before retrying.", parse_mode="HTML")
+        await state.clear()
+        await message.answer(f"✅ <b>Restored <code>{len(operations)}</code> users.</b>", parse_mode="HTML")
 
     @dp.callback_query(F.data.startswith("adm_config:"))
     async def config_start(cq, state):
