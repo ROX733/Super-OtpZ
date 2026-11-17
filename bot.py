@@ -54,13 +54,17 @@ BOTUSER = "AccBotHost_Bot"
 SUPPORT = "ROX"
 
 def get_support_url():
-    configured = (db["admin_settings"].find_one({"_id": "support"}) or {}).get("url", "")
+    default = f"https://t.me/{SUPPORT}"
+    try:
+        configured = (db["admin_settings"].find_one({"_id": "support"}) or {}).get("url", "")
+    except Exception:
+        return default
     if isinstance(configured, str):
         if configured.startswith("https://t.me/"):
             return configured
         if configured.startswith("@"):
             return "https://t.me/" + configured[1:]
-    return f"https://t.me/{SUPPORT}"
+    return default
 LOGS = "Super_OtpZ"
 USAGE = "shebroked"
 OWNER = "ROX"
