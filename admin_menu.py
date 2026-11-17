@@ -61,7 +61,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
     def permission_for(action):
         if action in ("admin_panel",):
             return None
-        if action.startswith(("stk:", "admin_stock_info", "admin_do:setprices")):
+        if action.startswith(("stk:", "admin_stock_info", "adm_single_price", "admin_do:setprices")):
             return "stock"
         if action.startswith(("adm_pay", "adm_pending", "adm_proof:", "gw_")):
             return "payments"
