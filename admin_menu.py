@@ -383,17 +383,17 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             return await cq.answer("Not authorized", show_alert=True)
         action = cq.data.partition(":")[2]
         prompts = {
-            "discount": "🎁 Send: user_id discount_percent (0-100)",
-            "ref": "👥 Send global referral percentage (0-100)",
-            "support": "🔗 Send https://t.me/username or @username",
-            "ban": "🚫 Send: user_id ban OR user_id unban"
+            "discount": "👤 <b>User ID:</b>\n\nSend <i>/cancel</i> only if you want to abort.",
+            "ref": "👥 <b>Referral %</b> (0-100)\n\nSend <code>3</code> for 3%.\n<i>/cancel</i> to abort.",
+            "support": "🔗 <b>Support URL</b>\n\nSend <code>https://t.me/username</code> or <code>@username</code>.\n<i>/cancel</i> to abort.",
+            "ban": "🚫 <b>Ban / Unban</b>\n\nSend <code>123456789 ban</code> or <code>123456789 unban</code>.\n<i>/cancel</i> to abort."
         }
         if action not in prompts:
             return await cq.answer("Invalid action", show_alert=True)
         await state.set_state(AdminConfigInput.waiting)
         await state.update_data(config_action=action, config_chat=cq.message.chat.id,
                                 config_message=None)
-        sent = await cq.message.answer(prompts[action] + "\n/cancel to abort.")
+        sent = await cq.message.answer(prompts[action], parse_mode="HTML")
         await state.update_data(config_message=sent.message_id)
         await cq.answer()
 
@@ -412,6 +412,35 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         data = await state.get_data()
         action = data["config_action"]
         value = (message.text or "").strip()
+        if action == "discount":
+            if not data.get("discount_user_id"):
+                if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 10**16:
+                    return await message.answer("❌ <b>Invalid User ID.</b> Send a numeric Telegram User ID.", parse_mode="HTML")
+                if not handlers["users_col"].find_one({"_id": int(value)}, {"_id": 1}):
+                    return await message.answer("❌ <b>User not found.</b> Send another User ID.", parse_mode="HTML")
+                await state.update_data(discount_user_id=int(value))
+                return await message.answer(
+                    "🎁 <b>Discount %</b> (0 to remove):\n\n"
+                    "Send <code>10</code> for 10% discount.\n"
+                    "Send <i>/cancel</i> only if you want to abort.",
+                    parse_mode="HTML")
+            try:
+                pct = Decimal(value)
+                if not pct.is_finite() or not 0 <= pct <= 100 or pct.as_tuple().exponent < -2:
+                    raise ValueError()
+            except (ValueError, InvalidOperation):
+                return await message.answer("❌ <b>Invalid discount.</b> Send a number from <code>0</code> to <code>100</code>.", parse_mode="HTML")
+            uid = data["discount_user_id"]
+            result = handlers["users_col"].update_one(
+                {"_id": uid}, {"$set": {"discount_percent": float(pct)}})
+            if not result.matched_count:
+                await state.clear()
+                return await message.answer("❌ User not found.")
+            await state.clear()
+            await message.answer(
+                f"✅ <b>User <code>{uid}</code> has {pct:g}% discount.</b>",
+                parse_mode="HTML")
+            return
         try:
             if action in ("discount", "ban"):
                 uid, parameter = value.split()
