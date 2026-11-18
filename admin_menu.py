@@ -25,6 +25,12 @@ class SetBio(StatesGroup):
 class ManageAdmins(StatesGroup):
     waiting = State()
 
+class ZipInventory(StatesGroup):
+    upload = State()
+    year = State()
+    price = State()
+    confirm = State()
+
 class RestoreUsers(StatesGroup):
     document = State()
 
@@ -87,6 +93,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         actions = [
             ("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON", "admin_toggle_maintenance"),
             ("➕ Add Single Acc", "admin_do:add"),
+            ("📦 Add Session (ZIP)", "adm_zip_start"),
             ("📊 Manage Stock", "admin_stock_info"),
             ("💰 Set Account Prices", "admin_do:setprices"),
             ("📈 Statistics", "adm_stats"),
@@ -195,6 +202,173 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         await state.clear()
         await bot.edit_message_text(chat_id=data["bio_chat"], message_id=data["bio_message"],
                                     text="✅ Telegram account bio updated.", reply_markup=menu(message.from_user.id))
+
+    # Metadata-only ZIP inventory: never extract or retain Telegram session credentials.
+    @dp.callback_query(F.data == "adm_zip_start")
+    async def zip_inventory_start(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        if cq.message.chat.type != "private":
+            return await cq.answer("Use this in private chat.", show_alert=True)
+        await state.set_state(ZipInventory.upload)
+        await cq.message.answer(
+            "📦 <b>Add Session (ZIP)</b>\n\n"
+            "Upload one <code>.zip</code> file (max 10 MB).\n"
+            "Only filenames will be inspected; login sessions are not accessed or stored.\n\n"
+            "Send <i>/cancel</i> to abort.", parse_mode="HTML")
+        await cq.answer()
+
+    @dp.message(StateFilter(ZipInventory.upload, ZipInventory.year, ZipInventory.price, ZipInventory.confirm), Command("cancel"))
+    async def zip_inventory_cancel(message, state):
+        await state.clear()
+        await message.answer("❌ <b>ZIP import cancelled.</b>", parse_mode="HTML")
+
+    @dp.message(StateFilter(ZipInventory.upload))
+    async def zip_inventory_upload(message, state):
+        if not is_admin(message.from_user.id, "stock") or message.chat.type != "private":
+            await state.clear()
+            return
+        doc = message.document
+        if not doc or not (doc.file_name or "").lower().endswith(".zip") or not doc.file_size or doc.file_size > 10_000_000:
+            return await message.answer("❌ Upload a <b>.zip</b> file under 10 MB.", parse_mode="HTML")
+        from io import BytesIO
+        from zipfile import ZipFile, BadZipFile
+        from hashlib import sha256
+        stream = BytesIO()
+        await bot.download(doc, destination=stream)
+        try:
+            with ZipFile(stream) as archive:
+                entries = archive.infolist()
+                if len(entries) > 5000:
+                    raise ValueError("Too many entries")
+                names = [entry.filename for entry in entries if not entry.is_dir()
+                         and entry.filename.lower().endswith(".session")]
+                if not names:
+                    raise ValueError("No session filenames")
+                # Hash names only; neither extract nor read session contents.
+                keys = [sha256(name.rsplit("/", 1)[-1].casefold().encode()).hexdigest()
+                        for name in names]
+                keys = list(dict.fromkeys(keys))
+        except (BadZipFile, ValueError, OSError):
+            return await message.answer("❌ Invalid ZIP or no .session filenames found.")
+        await state.update_data(zip_keys=keys, zip_total=len(names))
+        kb = InlineKeyboardBuilder()
+        for label, value in [("🟢 Spam Free", "Good"), ("🟠 Temporary Spam", "Temporary Spam"),
+                             ("🔴 Permanent Spam", "Permanent Spam")]:
+            kb.button(text=label, callback_data="adm_zip_spam:" + {"Good":"good","Temporary Spam":"temp","Permanent Spam":"perm"}[value])
+        kb.adjust(1)
+        await message.answer(
+            f"✅ <b>ZIP scanned</b>\n\n📄 <b>Session filenames:</b> <code>{len(names)}</code>\n"
+            f"🔁 <b>Unique filenames:</b> <code>{len(keys)}</code>\n"
+            "🔒 <b>Live login validation:</b> Not performed\n\n"
+            "<b>Select Spam Status:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("adm_zip_spam:"))
+    async def zip_inventory_spam(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        data = await state.get_data()
+        if not data.get("zip_keys"):
+            return await cq.answer("Upload a ZIP first.", show_alert=True)
+        categories = {"good": "Good", "temp": "Temporary Spam", "perm": "Permanent Spam"}
+        category = categories.get(cq.data.partition(":")[2])
+        if not category:
+            return await cq.answer("Invalid category.", show_alert=True)
+        await state.update_data(zip_category=category)
+        await state.set_state(ZipInventory.year)
+        await cq.message.answer("📅 <b>Account Year</b>\n\nSend a year, e.g. <code>2024</code>.", parse_mode="HTML")
+        await cq.answer()
+
+    @dp.message(StateFilter(ZipInventory.year))
+    async def zip_inventory_year(message, state):
+        if not is_admin(message.from_user.id, "stock"):
+            await state.clear()
+            return
+        raw = (message.text or "").strip()
+        if not raw.isascii() or not raw.isdecimal() or not 2000 <= int(raw) <= 2100:
+            return await message.answer("❌ Enter a valid year (2000–2100).")
+        await state.update_data(zip_year=int(raw))
+        await state.set_state(ZipInventory.price)
+        await message.answer("💰 <b>Price per entry</b>\n\nSend INR amount, e.g. <code>22</code>.", parse_mode="HTML")
+
+    @dp.message(StateFilter(ZipInventory.price))
+    async def zip_inventory_price(message, state):
+        if not is_admin(message.from_user.id, "stock"):
+            await state.clear()
+            return
+        try:
+            amount = Decimal((message.text or "").strip())
+            if not amount.is_finite() or not Decimal("0") < amount <= Decimal("100000") or amount.as_tuple().exponent < -2:
+                raise InvalidOperation
+        except (InvalidOperation, ValueError):
+            return await message.answer("❌ Enter a valid price (₹0.01–₹100000).")
+        await state.update_data(zip_price=str(amount))
+        await state.set_state(ZipInventory.confirm)
+        data = await state.get_data()
+        kb = InlineKeyboardBuilder()
+        kb.button(text="🔒 2FA Enabled", callback_data="adm_zip_2fa:yes")
+        kb.button(text="🔓 2FA Disabled", callback_data="adm_zip_2fa:no")
+        kb.adjust(1)
+        await message.answer("🔐 <b>2FA Status</b>\n\nSelect status (no password is collected).",
+                             reply_markup=kb.as_markup(), parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("adm_zip_2fa:"))
+    async def zip_inventory_2fa(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        data = await state.get_data()
+        if not data.get("zip_keys") or "zip_price" not in data:
+            return await cq.answer("Start ZIP import first.", show_alert=True)
+        enabled = cq.data.endswith(":yes")
+        await state.update_data(zip_2fa=enabled)
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Confirm Import", callback_data="adm_zip_confirm")
+        kb.button(text="❌ Cancel", callback_data="adm_zip_cancel")
+        kb.adjust(1)
+        await cq.message.answer(
+            "📋 <b>ZIP Inventory Summary</b>\n\n"
+            f"📦 <b>Unique entries:</b> <code>{len(data['zip_keys'])}</code>\n"
+            f"🚫 <b>Spam Status:</b> {escape(data['zip_category'])}\n"
+            f"📅 <b>Year:</b> <code>{data['zip_year']}</code>\n"
+            f"💰 <b>Price:</b> ₹{data['zip_price']}\n"
+            f"🔐 <b>2FA:</b> {'Enabled' if enabled else 'Disabled'}\n\n"
+            "ℹ️ <i>Metadata inventory only; no session files are stored.</i>",
+            reply_markup=kb.as_markup(), parse_mode="HTML")
+        await cq.answer()
+
+    @dp.callback_query(F.data == "adm_zip_cancel")
+    async def zip_inventory_cancel_button(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        await state.clear()
+        await cq.message.edit_text("❌ <b>ZIP import cancelled.</b>", parse_mode="HTML")
+        await cq.answer()
+
+    @dp.callback_query(F.data == "adm_zip_confirm")
+    async def zip_inventory_confirm(cq, state):
+        if not is_admin(cq.from_user.id, "stock"):
+            return await cq.answer("Not authorized", show_alert=True)
+        if await state.get_state() != ZipInventory.confirm.state:
+            return await cq.answer("Import session expired.", show_alert=True)
+        data = await state.get_data()
+        if not data.get("zip_keys") or "zip_2fa" not in data:
+            return await cq.answer("Complete the import first.", show_alert=True)
+        from pymongo import UpdateOne
+        inventory = database["zip_session_metadata"]
+        operations = [UpdateOne({"_id": key}, {"$setOnInsert": {
+            "category": data["zip_category"], "status": data["zip_category"],
+            "year": data["zip_year"], "price": data["zip_price"],
+            "two_factor_enabled": data["zip_2fa"], "created_at": datetime.now(timezone.utc)}},
+            upsert=True) for key in data["zip_keys"]]
+        result = inventory.bulk_write(operations, ordered=False)
+        await state.clear()
+        await cq.message.edit_text(
+            "✅ <b>ZIP Metadata Import Complete</b>\n\n"
+            f"➕ <b>Added:</b> <code>{result.upserted_count}</code>\n"
+            f"⏭ <b>Duplicates:</b> <code>{len(operations)-result.upserted_count}</code>\n"
+            "🔒 <b>Session credentials stored:</b> No",
+            parse_mode="HTML")
+        await cq.answer()
 
     @dp.callback_query(F.data == "adm_admins")
     async def manage_admins(cq):
