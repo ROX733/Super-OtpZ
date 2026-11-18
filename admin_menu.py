@@ -213,7 +213,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         total = len(records)
         if not total:
             return await message.answer("❌ No matching accounts found in stock.")
-        await message.answer(f"⏳ Setting bio metadata for {total} accounts... This may take a while.")
+        await message.answer(f"⏳ Saving bio text for {total} stock records...")
         success = failed = 0
         for record in records:
             phone = escape(str(record.get("number") or "Unknown"))
@@ -229,11 +229,11 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
                 failed += 1
                 await message.answer(f"❌ Bio save failed for <code>{phone}</code>.", parse_mode="HTML")
         await message.answer(
-            "✅ <b>Bio Metadata Update Complete!</b>\n"
+            "✅ <b>Bio Text Save Complete!</b>\n"
             f"✅ Success: <code>{success}</code>\n"
             f"❌ Failed: <code>{failed}</code>\n"
             f"📊 Total: <code>{total}</code>\n\n"
-            "ℹ️ Telegram profile bios were not changed.",
+            "ℹ️ Saved in stock records only. Telegram profile bios were not changed.",
             parse_mode="HTML")
 
     # Metadata-only ZIP inventory: never extract or retain Telegram session credentials.
