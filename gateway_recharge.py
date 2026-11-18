@@ -128,6 +128,20 @@ def register_gateway(dp, bot, db, admin_ids):
             data = response["data"]
             order_id = str(data["order_id"])
             payments.insert_one({"_id": order_id, "user_id": message.from_user.id, "amount": str(amount), "status": "pending", "created_at": datetime.now(timezone.utc)})
+            # Internal request alert only. Payment confirmation remains gateway-verified.
+            try:
+                await bot.send_message(
+                    -1003876364672,
+                    "🆕 <b>NEW AUTOMATIC UPI DEPOSIT REQUEST</b>\n\n"
+                    f"🧾 <b>Order ID:</b> <code>{order_id}</code>\n"
+                    f"👤 <b>User ID:</b> <code>{message.from_user.id}</code>\n"
+                    f"💰 <b>Amount:</b> ₹{amount:.2f}\n"
+                    "💳 <b>Method:</b> UPI Automatic\n"
+                    "⏳ <b>Status:</b> Pending gateway verification",
+                    parse_mode="HTML")
+            except Exception:
+                # Alert delivery must not block an already-created payment order.
+                pass
             kb = InlineKeyboardBuilder()
             kb.button(text="✅ Check Payment", callback_data="gw_check:" + order_id)
             kb.adjust(1)
