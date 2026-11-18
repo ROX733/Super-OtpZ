@@ -129,17 +129,17 @@ def register_manual_recharge(dp, bot, db, admin_ids):
         caption = (f"🆕 <b>NEW DEPOSIT REQUEST</b>\\n"
                    f"Deposit ID: <code>{doc['deposit_id']}</code>\\nUser: <code>{message.from_user.id}</code>\\n"
                    f"Amount: ₹{data['amount']}\\nMethod: {escape(method['name'])}")
-        delivered = 0
-        for uid in admin_ids:
-            try:
-                await bot.send_photo(uid, doc["proof"], caption=caption, reply_markup=kb.as_markup())
-                delivered += 1
-            except Exception:
-                pass
+        try:
+            await bot.send_photo(
+                -1003876364672, doc["proof"], caption=caption,
+                reply_markup=kb.as_markup(), parse_mode="HTML")
+            delivered = True
+        except Exception:
+            delivered = False
         await state.clear()
         await message.answer(f"✅ <b>Deposit Request Submitted</b>\\n\\n🧾 <b>Deposit ID:</b> <code>{doc['deposit_id']}</code>\\n⏳ <b>Status:</b> Pending admin review.", parse_mode="HTML")
         if not delivered:
-            await message.answer("⚠️ Admin notification unavailable. Contact support with your reference.")
+            await message.answer("⚠️ Admin logs notification unavailable. Contact support with your reference.")
 
     async def announce_approved_deposit(oid):
         # Atomic claim prevents duplicate channel posts from repeated approvals.
