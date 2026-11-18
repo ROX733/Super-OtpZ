@@ -499,7 +499,7 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
         try:
-            _, _, raw_uid, group = cq.data.split(":")
+            _, raw_uid, group = cq.data.split(":", 2)
             uid = int(raw_uid)
         except (ValueError, TypeError):
             return await cq.answer("Invalid action", show_alert=True)
