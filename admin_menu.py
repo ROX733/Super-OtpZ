@@ -155,53 +155,86 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
         await state.set_state(SetBio.waiting)
-        await state.update_data(bio_chat=cq.message.chat.id, bio_message=None)
-        sent = await cq.message.answer("📝 Send account phone number and new bio separated by a space.\n"
-                                   "Example: +919876543210 Available for messages\n"
-                                   "Bio will be applied to the stored Telegram session. /cancel to stop.")
-        await state.update_data(bio_message=sent.message_id)
+        await state.update_data(bio_step="target")
+        kb = InlineKeyboardBuilder()
+        kb.button(text="❌ Cancel", callback_data="adm_bio_cancel")
+        await cq.message.edit_text(
+            "📱 📝 <b>Set Bio</b>\n\n"
+            "Enter phone number to set bio\n"
+            "Type <code>all</code> to set bio for ALL accounts in stock.\n\n"
+            "Type /cancel to cancel.",
+            reply_markup=kb.as_markup(), parse_mode="HTML")
+        await cq.answer()
+
+    @dp.callback_query(F.data == "adm_bio_cancel")
+    async def bio_cancel_button(cq, state):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        await state.clear()
+        await cq.message.edit_text("❌ <b>Set Bio cancelled.</b>",
+                                   reply_markup=menu(cq.from_user.id), parse_mode="HTML")
         await cq.answer()
 
     @dp.message(StateFilter(SetBio.waiting), Command("cancel"))
     async def bio_cancel(message, state):
         await state.clear()
-        await message.answer("Cancelled.")
+        await message.answer("❌ Set Bio cancelled.")
 
     @dp.message(StateFilter(SetBio.waiting))
     async def bio_apply(message, state):
-        if message.from_user.id not in admin_ids:
+        if message.from_user.id not in admin_ids or message.chat.type != "private":
             await state.clear()
             return
         import re
-        parts = (message.text or "").strip().split(maxsplit=1)
-        if len(parts) != 2 or not re.fullmatch(r"\\+?[0-9]{8,15}", parts[0]) or not 1 <= len(parts[1]) <= 70:
-            return await message.answer("❌ Format: phone_number bio (1–70 characters).")
-        phone = parts[0].lstrip("+")
-        record = numbers.find_one({"number": {"$in": [phone, "+" + phone]}})
-        if not record or not record.get("string_session"):
-            return await message.answer("❌ Stored account/session not found.")
-        from telethon import TelegramClient
-        from telethon.sessions import StringSession
-        from telethon.tl.functions.account import UpdateProfileRequest
-        import os
-        api_id = int(os.getenv("API_ID", "0"))
-        api_hash = os.getenv("API_HASH", "")
-        if not api_id or not api_hash:
-            return await message.answer("❌ API_ID/API_HASH not configured.")
-        client = TelegramClient(StringSession(record["string_session"]), api_id, api_hash)
-        try:
-            await client.connect()
-            if not await client.is_user_authorized():
-                return await message.answer("❌ Session expired.")
-            await client(UpdateProfileRequest(about=parts[1]))
-        except Exception:
-            return await message.answer("❌ Unable to update bio; check session permissions.")
-        finally:
-            await client.disconnect()
         data = await state.get_data()
+        step = data.get("bio_step", "target")
+        value = (message.text or "").strip()
+        if step == "target":
+            if value.lower() != "all" and not re.fullmatch(r"\\+?[0-9]{8,15}", value):
+                return await message.answer("❌ Enter a valid phone number or <code>all</code>.", parse_mode="HTML")
+            await state.update_data(bio_step="text", bio_target=value.lower() if value.lower() == "all" else value.lstrip("+"))
+            await message.answer(
+                "📃 <b>Enter the bio text:</b>\n"
+                "(Max 70 characters for Telegram bio)\n"
+                "Type /cancel to cancel.", parse_mode="HTML")
+            return
+        if step != "text":
+            await state.clear()
+            return await message.answer("❌ Set Bio expired. Please start again.")
+        if not 1 <= len(value) <= 70:
+            return await message.answer("❌ Bio must contain 1–70 characters.")
+        target = data.get("bio_target")
+        if target == "all":
+            records = list(numbers.find({"used": False}, {"_id": 1, "number": 1}))
+        else:
+            records = list(numbers.find({"number": {"$in": [target, "+" + target]}},
+                                        {"_id": 1, "number": 1}).limit(1))
         await state.clear()
-        await bot.edit_message_text(chat_id=data["bio_chat"], message_id=data["bio_message"],
-                                    text="✅ Telegram account bio updated.", reply_markup=menu(message.from_user.id))
+        total = len(records)
+        if not total:
+            return await message.answer("❌ No matching accounts found in stock.")
+        await message.answer(f"⏳ Setting bio metadata for {total} accounts... This may take a while.")
+        success = failed = 0
+        for record in records:
+            phone = escape(str(record.get("number") or "Unknown"))
+            try:
+                result = numbers.update_one({"_id": record["_id"]}, {"$set": {"bio": value}})
+                if result.matched_count != 1:
+                    raise ValueError("Account not found")
+                success += 1
+                await message.answer(
+                    f"✅ Bio saved for <code>{phone}</code>:\n\n{escape(value)}",
+                    parse_mode="HTML")
+            except Exception:
+                failed += 1
+                await message.answer(f"❌ Bio save failed for <code>{phone}</code>.", parse_mode="HTML")
+        await message.answer(
+            "✅ <b>Bio Metadata Update Complete!</b>\n"
+            f"✅ Success: <code>{success}</code>\n"
+            f"❌ Failed: <code>{failed}</code>\n"
+            f"📊 Total: <code>{total}</code>\n\n"
+            "ℹ️ Telegram profile bios were not changed.",
+            parse_mode="HTML")
 
     # Metadata-only ZIP inventory: never extract or retain Telegram session credentials.
     @dp.callback_query(F.data == "adm_zip_start")
