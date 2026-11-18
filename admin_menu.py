@@ -403,97 +403,136 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
             parse_mode="HTML")
         await cq.answer()
 
+    ADMIN_GROUPS = {
+        "add": ("Add Stock", ("accounts",)),
+        "manage": ("Manage Stock", ("stock",)),
+        "stats": ("Stats & Bcast", ("stats", "broadcast")),
+        "users": ("Bal & Users", ("users", "payments")),
+        "settings": ("Settings", ("settings", "backup")),
+    }
+
+    def admin_manage_keyboard():
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Add Admin", callback_data="adm_admin_add")
+        kb.button(text="✏️ Edit Admin", callback_data="adm_admin_edit")
+        kb.button(text="⬅️ Back", callback_data="admin_panel")
+        kb.adjust(2, 1)
+        return kb.as_markup()
+
+    def admin_permissions_keyboard(uid, permissions):
+        kb = InlineKeyboardBuilder()
+        for key, (label, perms) in ADMIN_GROUPS.items():
+            enabled = all(p in permissions for p in perms)
+            kb.button(text=f"{label}: {'✅' if enabled else '❌'}",
+                      callback_data=f"adm_admin_toggle:{uid}:{key}")
+        kb.button(text="🗑 Remove Admin", callback_data=f"adm_admin_delete:{uid}")
+        kb.button(text="⬅️ Back", callback_data="adm_admins")
+        kb.adjust(1)
+        return kb.as_markup()
+
     @dp.callback_query(F.data == "adm_admins")
     async def manage_admins(cq):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
-        entries = list(admin_registry.find({"active": True}, {"permissions": 1}).limit(30))
-        lines = ["👑 <b>Manage Admins</b>", "", "🔒 <b>Owner IDs are protected.</b>",
-                 "Their permissions cannot be changed or removed.", "",
-                 f"👥 <b>Active Sub-admins:</b> <code>{len(entries)}</code>"]
-        for entry in entries:
-            perms = ", ".join(entry.get("permissions", [])) or "None"
-            lines.append(f"\n👤 <code>{entry['_id']}</code>\n🔑 {escape(perms)}")
-        kb = InlineKeyboardBuilder()
-        kb.button(text="➕ Add / Update Admin", callback_data="adm_admin_add")
-        kb.button(text="➖ Remove Admin", callback_data="adm_admin_remove")
-        kb.button(text="⬅️ Back", callback_data="admin_panel")
-        kb.adjust(1)
-        await cq.message.edit_text("\n".join(lines), reply_markup=kb.as_markup(), parse_mode="HTML")
+        entries = list(admin_registry.find({"active": True}, {"_id": 1}).sort("_id", 1).limit(50))
+        lines = ["👥 <b>Manage Sub-Admins</b>", ""]
+        lines.extend(f"👤 <code>{entry['_id']}</code>" for entry in entries)
+        if not entries:
+            lines.append("No active sub-admins.")
+        lines.append("\n🔒 Owner IDs cannot be edited or removed.")
+        await cq.message.edit_text("\n".join(lines), reply_markup=admin_manage_keyboard(), parse_mode="HTML")
         await cq.answer()
 
-    @dp.callback_query(F.data.in_({"adm_admin_add", "adm_admin_remove"}))
+    @dp.callback_query(F.data.in_({"adm_admin_add", "adm_admin_edit"}))
     async def admin_edit_start(cq, state):
         if cq.from_user.id not in admin_ids:
             return await cq.answer("Owner only", show_alert=True)
-        mode = "add" if cq.data == "adm_admin_add" else "remove"
+        mode = "add" if cq.data == "adm_admin_add" else "edit"
         await state.set_state(ManageAdmins.waiting)
-        await state.update_data(admin_mode=mode, admin_chat=cq.message.chat.id,
-                                admin_message=cq.message.message_id)
-        if mode == "add":
-            prompt = ("➕ <b>Add / Update Admin</b>\n\n"
-                      "Send <code>123456789 stock,users</code>\n\n"
-                      "🔑 <b>Available permissions:</b>\n"
-                      "<code>stock,payments,users,stats,broadcast,settings,backup,accounts</code>")
-        else:
-            prompt = ("➖ <b>Remove Admin</b>\n\n"
-                      "Send the sub-admin User ID, e.g. <code>123456789</code>.")
-        await cq.message.edit_text(
-            prompt + "\n\n🔒 <b>Owner accounts cannot be modified.</b>\n"
-            "Send <i>/cancel</i> to abort.", parse_mode="HTML")
+        await state.update_data(admin_mode=mode)
+        await cq.message.answer(
+            "👤 <b>Enter User ID for new Admin:</b>" if mode == "add"
+            else "✏️ <b>Enter User ID to edit Admin:</b>\n\nSend /cancel to abort.",
+            parse_mode="HTML")
         await cq.answer()
 
     @dp.message(StateFilter(ManageAdmins.waiting), Command("cancel"))
     async def admin_edit_cancel(message, state):
         await state.clear()
-        await message.answer("❌ <b>Cancelled.</b>", parse_mode="HTML")
+        await message.answer("❌ Cancelled.")
 
     @dp.message(StateFilter(ManageAdmins.waiting))
     async def admin_edit_save(message, state):
-        if message.from_user.id not in admin_ids:
+        if message.from_user.id not in admin_ids or message.chat.type != "private":
             await state.clear()
             return
-        data = await state.get_data()
-        parts = (message.text or "").strip().split()
-        if not parts or not parts[0].isascii() or not parts[0].isdecimal() or not 0 < int(parts[0]) < 10**16:
-            return await message.answer("❌ <b>Invalid User ID.</b> Send a numeric Telegram ID.", parse_mode="HTML")
-        uid = int(parts[0])
-        # Configured owner IDs are immutable from the bot, including self-modification.
+        raw = (message.text or "").strip()
+        if not raw.isascii() or not raw.isdecimal() or not 0 < int(raw) < 10**16:
+            return await message.answer("❌ Enter a valid numeric User ID.")
+        uid = int(raw)
         if uid in admin_ids:
-            return await message.answer(
-                "🔒 <b>Protected Owner ID.</b> Owner permissions cannot be edited and owners cannot be removed.",
-                parse_mode="HTML")
-        if data["admin_mode"] == "add":
-            allowed = {"stock", "payments", "users", "stats", "broadcast", "settings", "backup", "accounts"}
-            if len(parts) != 2:
-                return await message.answer(
-                    "❌ Send <code>123456789 stock,users</code>.", parse_mode="HTML")
-            permissions = parts[1].lower().split(",")
-            if not permissions or any(p not in allowed for p in permissions) or len(set(permissions)) != len(permissions):
-                return await message.answer("❌ <b>Invalid or duplicate permissions.</b>", parse_mode="HTML")
-            # Recheck owner protection at the database mutation boundary.
-            if uid in admin_ids:
-                return await message.answer("🔒 Owner accounts are protected.")
-            admin_registry.update_one(
-                {"_id": uid}, {"$set": {"active": True, "permissions": sorted(permissions)}},
-                upsert=True)
-            result = f"✅ <b>Admin <code>{uid}</code> added / updated.</b>\n🔑 <code>{','.join(sorted(permissions))}</code>"
+            return await message.answer("🔒 Owner IDs cannot be edited.")
+        data = await state.get_data()
+        mode = data.get("admin_mode")
+        if mode == "add":
+            existing = admin_registry.find_one({"_id": uid, "active": True})
+            if existing:
+                return await message.answer("ℹ️ Already a sub-admin. Use Edit Admin.")
+            admin_registry.update_one({"_id": uid},
+                {"$set": {"active": True, "permissions": []}}, upsert=True)
+            await message.answer("✅ Admin added!")
+        elif mode == "edit":
+            if not admin_registry.find_one({"_id": uid, "active": True}):
+                return await message.answer("❌ Active sub-admin not found.")
         else:
-            if len(parts) != 1:
-                return await message.answer("❌ Send only the User ID.")
-            if uid in admin_ids:
-                return await message.answer("🔒 Owner accounts are protected.")
-            changed = admin_registry.update_one(
-                {"_id": uid, "active": True}, {"$set": {"active": False}})
-            if not changed.matched_count:
-                return await message.answer(
-                    f"ℹ️ <b>User <code>{uid}</code> is not an active sub-admin.</b>",
-                    parse_mode="HTML")
-            result = f"✅ <b>Admin <code>{uid}</code> removed.</b>"
+            await state.clear()
+            return await message.answer("❌ Start again from Manage Admins.")
         await state.clear()
-        await bot.edit_message_text(
-            chat_id=data["admin_chat"], message_id=data["admin_message"],
-            text=result, reply_markup=menu(message.from_user.id), parse_mode="HTML")
+        record = admin_registry.find_one({"_id": uid, "active": True})
+        await message.answer(
+            f"✏️ <b>Editing Admin:</b> <code>{uid}</code>",
+            reply_markup=admin_permissions_keyboard(uid, record.get("permissions", [])),
+            parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("adm_admin_toggle:"))
+    async def admin_permission_toggle(cq):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        try:
+            _, _, raw_uid, group = cq.data.split(":")
+            uid = int(raw_uid)
+        except (ValueError, TypeError):
+            return await cq.answer("Invalid action", show_alert=True)
+        if uid in admin_ids or group not in ADMIN_GROUPS:
+            return await cq.answer("Protected or invalid action", show_alert=True)
+        record = admin_registry.find_one({"_id": uid, "active": True})
+        if not record:
+            return await cq.answer("Admin no longer active", show_alert=True)
+        current = set(record.get("permissions", []))
+        perms = set(ADMIN_GROUPS[group][1])
+        updated = (current - perms) if perms.issubset(current) else (current | perms)
+        admin_registry.update_one({"_id": uid, "active": True},
+                                  {"$set": {"permissions": sorted(updated)}})
+        await cq.message.edit_reply_markup(reply_markup=admin_permissions_keyboard(uid, updated))
+        await cq.answer("Permission updated")
+
+    @dp.callback_query(F.data.startswith("adm_admin_delete:"))
+    async def admin_delete(cq):
+        if cq.from_user.id not in admin_ids:
+            return await cq.answer("Owner only", show_alert=True)
+        try:
+            uid = int(cq.data.rsplit(":", 1)[1])
+        except ValueError:
+            return await cq.answer("Invalid User ID", show_alert=True)
+        if uid in admin_ids:
+            return await cq.answer("Owner IDs are protected", show_alert=True)
+        result = admin_registry.update_one({"_id": uid, "active": True},
+                                           {"$set": {"active": False}})
+        if not result.matched_count:
+            return await cq.answer("Admin already removed", show_alert=True)
+        await cq.message.edit_text(f"✅ Admin <code>{uid}</code> removed.",
+                                   reply_markup=admin_manage_keyboard(), parse_mode="HTML")
+        await cq.answer()
 
     @dp.callback_query(F.data == "adm_stats")
     async def admin_statistics(cq):
