@@ -93,7 +93,6 @@ def register_admin_panel(dp, bot, admin_ids, handlers):
         actions = [
             ("🔴 Status: Bot Under Maintenance" if maintenance_enabled() else "🟢 Status: Bot is ON", "admin_toggle_maintenance"),
             ("➕ Add Single Acc", "admin_do:add"),
-            ("📦 Add Session (ZIP)", "adm_zip_start"),
             ("📊 Manage Stock", "admin_stock_info"),
             ("💰 Set Account Prices", "admin_do:setprices"),
             ("📈 Statistics", "adm_stats"),
